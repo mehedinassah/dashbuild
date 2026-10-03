@@ -407,6 +407,109 @@ def git_diff():
             f"GIT DIFF ERROR: {e}"
         )
 
+# ============================================================
+# GIT COMMIT
+# ============================================================
+
+def git_commit(message, approved=False):
+
+    if not approved:
+        return (
+            "GIT COMMIT BLOCKED: "
+            "Explicit approval is required before committing."
+        )
+
+    if not message or not message.strip():
+        return (
+            "GIT COMMIT ERROR: "
+            "A commit message is required."
+        )
+
+    try:
+
+        status_result = subprocess.run(
+            [
+                "git",
+                "status",
+                "--porcelain"
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        if status_result.returncode != 0:
+
+            return (
+                "GIT COMMIT ERROR: "
+                + status_result.stderr.strip()
+            )
+
+        if not status_result.stdout.strip():
+
+            return (
+                "GIT COMMIT SKIPPED: "
+                "Working tree is clean. Nothing to commit."
+            )
+
+        commit_result = subprocess.run(
+            [
+                "git",
+                "add",
+                "-A"
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        if commit_result.returncode != 0:
+
+            return (
+                "GIT COMMIT ERROR while staging: "
+                + commit_result.stderr.strip()
+            )
+
+        commit_result = subprocess.run(
+            [
+                "git",
+                "commit",
+                "-m",
+                message.strip()
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=20
+        )
+
+        if commit_result.returncode != 0:
+
+            return (
+                "GIT COMMIT ERROR: "
+                + commit_result.stderr.strip()
+            )
+
+        return (
+            "GIT COMMIT SUCCESS:\n"
+            + commit_result.stdout.strip()
+        )
+
+    except subprocess.TimeoutExpired:
+
+        return (
+            "GIT COMMIT ERROR: "
+            "Git command timed out."
+        )
+
+    except Exception as e:
+
+        return (
+            f"GIT COMMIT ERROR: {e}"
+        )
+
 
 # ============================================================
 # PARSE TOOL REQUEST
@@ -568,6 +671,22 @@ def execute_tool(name, arguments):
 
             return git_diff()
 
+        elif name == "git_commit":
+
+            message = arguments.get("message")
+            approved = arguments.get("approved", False)
+
+            if not message:
+                return (
+                    "ERROR: git_commit requires "
+                    "a commit message."
+                )
+
+            return git_commit(
+                message,
+                approved
+            )
+
         else:
 
             return (
@@ -575,7 +694,7 @@ def execute_tool(name, arguments):
                 "Available tools are: "
                 "list_files, read_file, write_file, "
                 "run_python, run_tests, "
-                "git_status, git_diff."
+                "git_status, git_diff, git_commit."
             )
 
     except Exception as e:
@@ -709,6 +828,25 @@ Use this when you need to inspect exactly
 what has changed in the working tree.
 
 
+8. git_commit
+
+Arguments:
+{
+    "message": "Describe the change",
+    "approved": false
+}
+
+Purpose:
+Create a Git commit for the current working tree.
+
+IMPORTANT:
+- A commit is blocked unless approved is exactly true.
+- Never set approved to true unless the task explicitly
+  provides approval to commit.
+- The tool stages all current changes before committing.
+- Do not commit unrelated changes.
+
+
 ============================================================
 GENERAL RULES
 ============================================================
@@ -719,36 +857,43 @@ GENERAL RULES
 2. Git inspection is allowed through git_status
    and git_diff.
 
-3. Inspect existing files before modifying them.
+3. Git commits are allowed only through git_commit and
+   only when explicit approval is provided.
 
-4. Never assume a file exists.
+4. Inspect existing files before modifying them.
 
-5. Never invent test results.
+5. Never assume a file exists.
 
-6. Do not claim a program works unless you have
+6. Never invent test results.
+
+7. Do not claim a program works unless you have
    actually executed or tested it.
 
-7. When fixing code, inspect the relevant source first.
+8. When fixing code, inspect the relevant source first.
 
-8. When tests fail, inspect the failure before fixing code.
+9. When tests fail, inspect the failure before fixing code.
 
-9. After modifying code, run the relevant tests.
+10. After modifying code, run the relevant tests.
 
-10. Do not claim success while required tests fail.
+11. Do not claim success while required tests fail.
 
-11. Do not commit, push, deploy, or delete anything
-    through Git. Git commit will be added later as
-    a separate controlled tool.
+12. Do not push, deploy, or delete anything through Git.
 
-12. Follow the requested task sequence exactly.
+13. Do not call git_commit unless the task explicitly
+    authorizes a commit.
 
-13. If the task explicitly says not to modify files,
+14. Never set git_commit approved=true without explicit
+    approval from the task/user.
+
+15. Follow the requested task sequence exactly.
+
+16. If the task explicitly says not to modify files,
     do not modify files.
 
-14. If the task explicitly says not to run tests,
+17. If the task explicitly says not to run tests,
     do not run tests.
 
-15. Do not call tools that are prohibited by the task.
+18. Do not call tools that are prohibited by the task.
 
 
 ============================================================
@@ -799,7 +944,20 @@ For git_diff:
     "arguments": {}
 }
 
-Do not commit anything.
+For git_commit:
+
+{
+    "name": "git_commit",
+    "arguments": {
+        "message": "Describe the change",
+        "approved": false
+    }
+}
+
+A Git commit requires explicit approval.
+
+Never use "approved": true unless the task explicitly
+authorizes the commit.
 
 Do not push anything.
 
