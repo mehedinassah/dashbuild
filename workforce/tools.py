@@ -1,3 +1,4 @@
+import json
 import re
 import subprocess
 import sys
@@ -13,6 +14,8 @@ def make_tools(workspace, state):
     ws = Path(workspace).resolve()
     state.setdefault("written", set())
     state.setdefault("tests_passed", False)
+    cfg_path = ws / ".workforce.json"
+    cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
 
     def safe(path):
         path = str(path)
@@ -46,6 +49,8 @@ def make_tools(workspace, state):
             path: Relative path, for example calculator.py
             content: The full file contents
         """
+        if Path(str(path)).name == ".workforce.json":
+            return "REJECTED: this file is protected."
         p = safe(path)
         if p.exists():
             old = p.read_text()
@@ -102,10 +107,31 @@ def make_tools(workspace, state):
         return write_file(path, content.replace(old_text, new_text, 1))
 
     def run_tests() -> str:
-        """Run pytest in the workspace and return the output."""
-        r = subprocess.run([sys.executable, "-m", "pytest", "-q"],
-                           cwd=ws, capture_output=True, text=True, timeout=120)
+        """Run the project tests and return the output."""
+        cmd = list(cfg.get("test_cmd") or ["python", "-m", "pytest", "-q"])
+        if cmd[0] == "python":
+            cmd[0] = sys.executable
+        r = subprocess.run(cmd, cwd=ws, capture_output=True, text=True, timeout=120)
         state["tests_passed"] = (r.returncode == 0)
         return (r.stdout + r.stderr)[-3000:]
 
-    return [list_files, read_file, write_file, append_file, edit_file, run_tests]
+    def run_command(command: str) -> str:
+        """Run an allowed project command, for example: python manage.py makemigrations customers
+
+        Args:
+            command: The full command. Only allow-listed commands work.
+        """
+        parts = command.split()
+        allowed = cfg.get("commands", [])
+        if not parts or not any(parts[:len(a)] == a for a in allowed):
+            return ("REJECTED: command not allowed. Allowed: "
+                    + "; ".join(" ".join(a) for a in allowed))
+        if parts[0] == "python":
+            parts[0] = sys.executable
+        r = subprocess.run(parts, cwd=ws, capture_output=True, text=True, timeout=120)
+        return f"exit code {r.returncode}\n" + (r.stdout + r.stderr)[-3000:]
+
+    tools = [list_files, read_file, write_file, append_file, edit_file, run_tests]
+    if cfg.get("commands"):
+        tools.append(run_command)
+    return tools

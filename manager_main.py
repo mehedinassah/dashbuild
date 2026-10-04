@@ -9,4 +9,5 @@ DEFAULT_TASK = ("Add a 'modulus' operation to calculate() in calculator.py, hand
 
 task = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_TASK
 model = sys.argv[2] if len(sys.argv) > 2 else "qwen2.5:7b"
-run_task(model, Path(__file__).parent / "workspace", task)
+ws = sys.argv[3] if len(sys.argv) > 3 else "workspace"
+run_task(model, Path(__file__).parent / ws, task)

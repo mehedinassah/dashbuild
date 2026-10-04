@@ -1,0 +1,7 @@
+{
+  "test_cmd": ["python", "manage.py", "test"],
+  "commands": [
+    ["python", "manage.py", "makemigrations"],
+    ["python", "manage.py", "check"]
+  ]
+}

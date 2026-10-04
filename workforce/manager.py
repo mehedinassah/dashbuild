@@ -27,6 +27,7 @@ def _git(ws, *args):
 
 def _reset(ws):
     """Restore the workspace folder to the last commit."""
+    _git(ws, "reset", "-q", "--", ".")
     _git(ws, "checkout", "HEAD", "--", ".")
     _git(ws, "clean", "-fd", "--", ".")
 
@@ -94,7 +95,7 @@ def run_task(model, workspace, task, max_attempts=3, state_file="state.json"):
         print("-" * 60)
         answer = input("Commit these changes? [y/N] ").strip().lower()
         if answer == "y":
-            _git(ws, "add", "--", *sorted(touched))
+            _git(ws, "add", "-A", "--", ".")
             c = _git(ws, "commit", "-m", f"Worker: {task[:60]}")
             print(c.stdout or c.stderr)
             outcome["status"] = "committed"

@@ -40,7 +40,7 @@ def test_findings(ws):
     names = _git(ws, "diff", "HEAD", "--name-only", "--relative", "--", ".").stdout.split()
     for rel in names:
         base = Path(rel).name
-        if not (base.startswith("test_") and base.endswith(".py")):
+        if not ((base.startswith("test_") or base == "tests.py") and base.endswith(".py")):
             continue
         old_src = _git(ws, "show", f"HEAD:./{rel}")
         if old_src.returncode != 0 or not (ws / rel).exists():
@@ -68,6 +68,7 @@ def test_findings(ws):
 
 def review(model, workspace, task, auto_reject=True):
     ws = Path(workspace).resolve()
+    _git(ws, "add", "-N", "--", ".")
     hard, soft = test_findings(ws)
     if hard and auto_reject:
         print("AUTOMATED REJECT:\n- " + "\n- ".join(hard))
