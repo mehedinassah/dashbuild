@@ -40,6 +40,7 @@ def run_task(model, workspace, task, max_attempts=3, state_file="state.json"):
         return {"status": "dirty_workspace"}
 
     history, touched, feedback, approved = [], set(), None, False
+    reviewer_notes = ''
 
     for attempt in range(1, max_attempts + 1):
         if attempt > 1:
@@ -65,13 +66,17 @@ def run_task(model, workspace, task, max_attempts=3, state_file="state.json"):
 
         print("\n" + "=" * 60 + f"\nATTEMPT {attempt}: REVIEWER\n" + "=" * 60)
         rev = review(model, ws, task)
-        history.append({"attempt": attempt, "stage": "review",
-                        "verdict": rev["verdict"], "notes": (rev.get("summary") or "")[:1500]})
-        print("\nVERDICT:", rev["verdict"])
-        if rev["verdict"] == "APPROVE":
-            approved = True
-            break
-        feedback = (rev.get("summary") or "")[:1500]
+        notes = rev.get("summary") or ""
+        history.append({"attempt": attempt, "stage": "review", "verdict": rev["verdict"],
+                        "blocking": bool(rev.get("auto")), "notes": notes[:3000]})
+        if rev.get("auto"):
+            print("\nBLOCKING REJECT from automated checks")
+            feedback = notes[:1500]
+            continue
+        print("\nAutomated checks passed. Reviewer opinion (advisory):", rev["verdict"])
+        reviewer_notes = rev["verdict"] + "\n" + notes
+        approved = True
+        break
 
     outcome = {"task": task, "model": model, "when": time.strftime("%F %T"),
                "approved": approved, "history": history}
@@ -83,6 +88,10 @@ def run_task(model, workspace, task, max_attempts=3, state_file="state.json"):
     else:
         print("\n" + "=" * 60 + "\nAPPROVED. CHANGES TO COMMIT:\n" + "=" * 60)
         print(_git(ws, "diff", "HEAD", "--relative", "--", ".").stdout)
+        print("-" * 60)
+        print("REVIEWER OPINION (advisory, from the small model):")
+        print(reviewer_notes[:1500])
+        print("-" * 60)
         answer = input("Commit these changes? [y/N] ").strip().lower()
         if answer == "y":
             _git(ws, "add", "--", *sorted(touched))
