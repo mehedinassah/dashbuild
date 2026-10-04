@@ -1,3 +1,4 @@
+import ast
 import json
 import re
 import subprocess
@@ -7,6 +8,27 @@ from pathlib import Path
 
 def test_names(text):
     return set(re.findall(r"^\s*def (test_\w+)", text, re.M))
+
+
+def python_problem(src):
+    """Return a description of an obvious structural problem, or None."""
+    try:
+        tree = ast.parse(src)
+    except SyntaxError as e:
+        return (f"this is not valid Python (line {e.lineno}: {e.msg}). Write it "
+                "again with correct line breaks and indentation.")
+    seen, imports = set(), set()
+    for node in tree.body:
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            if node.name in seen:
+                return f"'{node.name}' is defined more than once. Keep a single definition."
+            seen.add(node.name)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            key = ast.dump(node)
+            if key in imports:
+                return "the same import appears more than once. Remove the duplicate."
+            imports.add(key)
+    return None
 
 
 def make_tools(workspace, state):
@@ -63,6 +85,10 @@ def make_tools(workspace, state):
             if old_lines >= 10 and len(content.splitlines()) < old_lines * 0.7:
                 return ("REJECTED: the new file is much shorter than the old one. "
                         "Keep everything that is not part of the change.")
+        if str(path).endswith(".py"):
+            problem = python_problem(content)
+            if problem:
+                return "REJECTED: " + problem
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content)
         state["written"].add(path)
