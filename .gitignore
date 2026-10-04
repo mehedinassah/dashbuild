@@ -5,3 +5,5 @@ __pycache__/
 .env
 __pycache__/
 state.json
+__pycache__/
+state.json
