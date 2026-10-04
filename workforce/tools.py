@@ -65,6 +65,23 @@ def make_tools(workspace, state):
         state["tests_passed"] = False
         return f"Wrote {path}"
 
+    def edit_file(path: str, old_text: str, new_text: str) -> str:
+        """Replace one exact piece of text in a file. Prefer this over write_file
+        for changes to existing files.
+
+        Args:
+            path: Relative path, for example calculator.py
+            old_text: Text to replace. It must appear exactly once in the file.
+            new_text: The replacement text
+        """
+        content = safe(path).read_text()
+        n = content.count(old_text)
+        if n == 0:
+            return "ERROR: old_text not found. Read the file again and copy the text exactly."
+        if n > 1:
+            return f"ERROR: old_text appears {n} times. Include more surrounding lines so it is unique."
+        return write_file(path, content.replace(old_text, new_text, 1))
+
     def run_tests() -> str:
         """Run pytest in the workspace and return the output."""
         r = subprocess.run([sys.executable, "-m", "pytest", "-q"],
@@ -72,4 +89,4 @@ def make_tools(workspace, state):
         state["tests_passed"] = (r.returncode == 0)
         return (r.stdout + r.stderr)[-3000:]
 
-    return [list_files, read_file, write_file, run_tests]
+    return [list_files, read_file, write_file, edit_file, run_tests]

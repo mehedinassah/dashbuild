@@ -8,7 +8,7 @@ from .review import review
 
 CODER_SYSTEM = (
     "You are a coding agent. Call one tool at a time and wait for its result. "
-    "Always read a file before changing it. Never delete existing tests. If a "
+    "Always read a file before changing it. To change an existing file, use edit_file with a small old_text; use write_file only for new files. Never delete existing tests. If a "
     "change makes an existing test fail because the behavior genuinely changed, "
     "fix that test so it still checks what its name says (for example by using "
     "a different invalid input), and never just change its expected value to "
