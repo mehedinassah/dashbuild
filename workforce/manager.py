@@ -8,18 +8,27 @@ from .review import review
 
 CODER_SYSTEM = (
     "You are a coding agent. Call one tool at a time and wait for its result. "
-    "Always read a file before changing it. To change an existing file, use edit_file with a small old_text; use write_file only for new files. Never delete existing tests. If a "
-    "change makes an existing test fail because the behavior genuinely changed, "
-    "fix that test so it still checks what its name says (for example by using "
-    "a different invalid input), and never just change its expected value to "
-    "match. After writing code, call run_tests. Fix failures. When tests pass, "
-    "reply with a one-line summary."
+    "Always read a file before changing it. append_file adds new text at the end "
+    "of a file; use it to add new tests. edit_file replaces complete lines copied "
+    "exactly from read_file. write_file replaces a whole file; use it for new or "
+    "very small files. Never delete or rename existing tests. If a change makes "
+    "an existing test fail because behavior genuinely changed, fix that test so "
+    "it still checks what its name says (for example by using a different invalid "
+    "input), and never just change its expected value to match. After writing "
+    "code, call run_tests. Fix failures. When tests pass, reply with a one-line "
+    "summary."
 )
 
 
 def _git(ws, *args):
     return subprocess.run(["git", *args], cwd=ws, capture_output=True,
                           text=True, timeout=60)
+
+
+def _reset(ws):
+    """Restore the workspace folder to the last commit."""
+    _git(ws, "checkout", "HEAD", "--", ".")
+    _git(ws, "clean", "-fd", "--", ".")
 
 
 def run_task(model, workspace, task, max_attempts=3, state_file="state.json"):
@@ -33,12 +42,16 @@ def run_task(model, workspace, task, max_attempts=3, state_file="state.json"):
     history, touched, feedback, approved = [], set(), None, False
 
     for attempt in range(1, max_attempts + 1):
+        if attempt > 1:
+            print("\nResetting workspace to the last commit for a clean retry.")
+            _reset(ws)
         print("\n" + "=" * 60 + f"\nATTEMPT {attempt} of {max_attempts}: CODER\n" + "=" * 60)
         prompt = task
         if feedback:
-            prompt += ("\n\nYOUR PREVIOUS ATTEMPT WAS REJECTED BY THE REVIEWER:\n"
-                       f"{feedback}\n\nThe files already contain your previous "
-                       "changes. Read them, then fix only these problems.")
+            prompt += ("\n\nYOUR PREVIOUS ATTEMPT WAS REJECTED:\n"
+                       f"{feedback}\n\nYour changes were reverted, so the files are "
+                       "back to their original state. Start again and avoid "
+                       "these problems.")
         state = {}
         res = run_worker(model=model, system=CODER_SYSTEM, task=prompt,
                          tools=make_tools(ws, state), state=state)
@@ -66,7 +79,7 @@ def run_task(model, workspace, task, max_attempts=3, state_file="state.json"):
     if not approved:
         outcome["status"] = "failed"
         print("\nSTOPPED: no approved result after all attempts.")
-        print("The changes are still in the workspace. Inspect them with: git diff")
+        print("The last attempt's changes are still in the workspace. Inspect with: git diff")
     else:
         print("\n" + "=" * 60 + "\nAPPROVED. CHANGES TO COMMIT:\n" + "=" * 60)
         print(_git(ws, "diff", "HEAD", "--relative", "--", ".").stdout)
