@@ -15,6 +15,9 @@ def make_tools(workspace, state):
     state.setdefault("tests_passed", False)
 
     def safe(path):
+        path = str(path)
+        if path.startswith("workspace/"):
+            path = path[len("workspace/"):]
         p = (ws / path).resolve()
         if p != ws and ws not in p.parents:
             raise ValueError("path is outside the workspace")
