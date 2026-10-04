@@ -523,78 +523,97 @@ def parse_tool_request(text):
     text = text.strip()
 
     # --------------------------------------------------------
-    # Remove Markdown fences
+    # Helper: validate a parsed JSON object
     # --------------------------------------------------------
 
-    text = re.sub(
-        r"^```json\s*",
-        "",
-        text,
-        flags=re.IGNORECASE
-    )
+    def extract_tool(data):
 
-    text = re.sub(
-        r"^```\s*",
-        "",
-        text
-    )
+        if not isinstance(data, dict):
+            return None
 
-    text = re.sub(
-        r"\s*```$",
-        "",
-        text
-    )
+        # Normal tool format
+        if (
+            isinstance(data.get("name"), str)
+            and isinstance(data.get("arguments"), dict)
+        ):
+            return {
+                "name": data["name"],
+                "arguments": data["arguments"]
+            }
 
-    text = text.strip()
-
-    # --------------------------------------------------------
-    # Parse JSON
-    # --------------------------------------------------------
-
-    try:
-
-        data = json.loads(text)
-
-    except json.JSONDecodeError:
+        # Direct write_file format
+        if (
+            "path" in data
+            and "content" in data
+        ):
+            return {
+                "name": "write_file",
+                "arguments": {
+                    "path": data["path"],
+                    "content": data["content"]
+                }
+            }
 
         return None
 
     # --------------------------------------------------------
-    # Normal tool format
+    # 1. Try the entire response first
     # --------------------------------------------------------
 
-    if (
-        isinstance(data, dict)
-        and isinstance(data.get("name"), str)
-        and isinstance(data.get("arguments"), dict)
-    ):
+    cleaned = text
 
-        return {
-            "name": data["name"],
-            "arguments": data["arguments"]
-        }
+    cleaned = re.sub(
+        r"```json\s*",
+        "",
+        cleaned,
+        flags=re.IGNORECASE
+    )
+
+    cleaned = re.sub(
+        r"```\s*",
+        "",
+        cleaned
+    )
+
+    cleaned = cleaned.strip()
+
+    try:
+
+        data = json.loads(cleaned)
+
+        result = extract_tool(data)
+
+        if result:
+            return result
+
+    except json.JSONDecodeError:
+        pass
 
     # --------------------------------------------------------
-    # Direct write_file format
+    # 2. Search for JSON objects inside the response
     # --------------------------------------------------------
 
-    if (
-        isinstance(data, dict)
-        and "path" in data
-        and "content" in data
-    ):
+    decoder = json.JSONDecoder()
 
-        return {
-            "name": "write_file",
-            "arguments": {
-                "path": data["path"],
-                "content": data["content"]
-            }
-        }
+    for match in re.finditer(r"\{", text):
+
+        start = match.start()
+
+        try:
+
+            data, end = decoder.raw_decode(
+                text[start:]
+            )
+
+            result = extract_tool(data)
+
+            if result:
+                return result
+
+        except json.JSONDecodeError:
+            continue
 
     return None
-
-
 # ============================================================
 # EXECUTE TOOL
 # ============================================================
@@ -1000,45 +1019,123 @@ been completed and verified.
 # ============================================================
 
 task = """
-Inspect the current project Git changes.
+You are working on the existing calculator project.
 
-Perform these actions in exactly this order:
+Your goal is to improve the calculator by adding a new
+"modulus" operation.
 
-1. Call git_status:
+Follow this workflow:
 
-{
-    "name": "git_status",
-    "arguments": {}
-}
+============================================================
+PHASE 1: PLAN
+============================================================
 
-2. After receiving the git_status result, call git_diff:
+Before using any tool, write a short plan containing:
 
-{
-    "name": "git_diff",
-    "arguments": {}
-}
+1. What files you need to inspect.
+2. What code needs to change.
+3. What tests need to be created or updated.
+4. How you will verify the change.
 
-3. After git_diff returns, give a short summary of:
+Do not modify anything during the planning phase.
 
-- which files are modified
-- whether the changes are staged or unstaged
-- what the main changes are
+============================================================
+PHASE 2: INSPECT
+============================================================
 
-4. Then finish the task.
+Inspect the relevant existing files before modifying them.
 
-IMPORTANT:
+At minimum, inspect:
 
-- Do not call git_status more than once.
-- Do not call git_diff more than once.
-- Do not call read_file.
-- Do not call list_files.
-- Do not call run_tests.
-- Do not call run_python.
-- Do not call write_file.
-- Do not modify any files.
-- Do not commit anything.
+calculator.py
+test_calculator.py
+
+Do not assume their contents.
+
+============================================================
+PHASE 3: IMPLEMENT
+============================================================
+
+Add support for:
+
+calculate(a, b, "modulus")
+
+Expected behavior:
+
+calculate(10, 3, "modulus") == 1
+
+Also handle:
+
+calculate(10, 0, "modulus")
+
+Use a sensible error response for division/modulus by zero
+that is consistent with the existing calculator behavior.
+
+Do not remove or break the existing operations:
+
+add
+subtract
+multiply
+divide
+invalid operation
+
+============================================================
+PHASE 4: TEST
+============================================================
+
+Update or create real pytest tests for the new behavior.
+
+Run the tests using run_tests.
+
+The existing tests must continue to pass.
+
+============================================================
+PHASE 5: FAILURE RECOVERY
+============================================================
+
+If tests fail:
+
+1. Read the test failure.
+2. Inspect the relevant source code.
+3. Determine the cause.
+4. Fix the code or tests.
+5. Run the tests again.
+
+Do not claim success while tests are failing.
+
+You may repeat the fix/test cycle when necessary,
+but do not make pointless repeated changes.
+
+============================================================
+PHASE 6: FINAL REVIEW
+============================================================
+
+After the tests pass:
+
+1. Call git_status.
+2. Call git_diff.
+3. Give a short summary of:
+   - files changed
+   - functionality added
+   - tests performed
+   - test result
+
+Do not commit anything.
+
+============================================================
+IMPORTANT RULES
+============================================================
+
+- Work only inside the controlled workspace.
+- Inspect files before modifying them.
+- Do not modify agent.py.
+- Do not modify files unrelated to the calculator task.
+- Do not invent test results.
+- Do not call git_commit.
+- Do not push.
+- Do not deploy.
+- Do not delete anything.
 """
-
 
 # ============================================================
 # RUN AGENT
@@ -1049,15 +1146,20 @@ def main():
     previous_calls = []
 
     # --------------------------------------------------------
-    # Required tool sequence for this task
+    # Controller state
     # --------------------------------------------------------
 
-    required_tools = [
-        "git_status",
-        "git_diff"
-    ]
+    written_files = set()
 
-    completed_required_tools = []
+    tests_passed = False
+    git_status_checked = False
+    git_diff_checked = False
+
+    # For the current task, both files must actually be modified.
+    required_modified_files = {
+        "calculator.py",
+        "test_calculator.py"
+    }
 
     # --------------------------------------------------------
     # Conversation
@@ -1085,9 +1187,7 @@ def main():
 
         print()
         print("=" * 60)
-        print(
-            f"AGENT STEP {step}"
-        )
+        print(f"AGENT STEP {step}")
         print("=" * 60)
 
         # ----------------------------------------------------
@@ -1098,15 +1198,14 @@ def main():
 
             response = chat(
                 model=MODEL,
-                messages=messages
+                messages=messages,
+                options={"num_ctx": 8192, "temperature": 0}
             )
 
         except Exception as e:
 
             print()
-            print(
-                "ERROR communicating with Ollama:"
-            )
+            print("ERROR communicating with Ollama:")
             print(e)
 
             break
@@ -1123,99 +1222,247 @@ def main():
         # Parse tool request
         # ----------------------------------------------------
 
-        request = parse_tool_request(
-            content
-        )
+        request = parse_tool_request(content)
 
         # ----------------------------------------------------
-        # AI finished
+        # Model gave no tool request
         # ----------------------------------------------------
 
         if request is None:
 
-            # If the required Git tools were completed,
-            # this is the model's final summary.
+            # Only allow completion after the controller
+            # confirms every required milestone.
 
             if (
-                completed_required_tools
-                == required_tools
+                required_modified_files.issubset(
+                    written_files
+                )
+                and tests_passed
+                and git_status_checked
+                and git_diff_checked
             ):
 
                 print()
-                print(
-                    "=" * 60
-                )
-                print(
-                    "AGENT FINISHED"
-                )
-                print(
-                    "=" * 60
-                )
+                print("=" * 60)
+                print("AGENT FINISHED")
+                print("=" * 60)
 
                 break
 
-            # Otherwise the model finished too early.
+            # Model attempted to finish too early.
 
-            print()
-            print(
-                "ERROR: AI finished before completing "
-                "the required tool sequence."
+            missing = []
+
+            if not required_modified_files.issubset(
+                written_files
+            ):
+                missing.append(
+                    "modify both calculator.py and test_calculator.py"
+                )
+
+            if not tests_passed:
+                missing.append(
+                    "run and pass pytest"
+                )
+
+            if not git_status_checked:
+                missing.append(
+                    "run git_status"
+                )
+
+            if not git_diff_checked:
+                missing.append(
+                    "run git_diff"
+                )
+
+            correction = (
+                "You cannot finish yet. "
+                "The controller requires these remaining steps:\n"
+                + "\n".join(
+                    f"- {item}"
+                    for item in missing
+                )
+                + "\n\n"
+                "Do not merely describe code in text. "
+                "Use the actual tools."
             )
 
-            break
+            print()
+            print("CONTROLLER:")
+            print(correction)
+
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": content
+                }
+            )
+
+            messages.append(
+                {
+                    "role": "user",
+                    "content": correction
+                }
+            )
+
+            continue
 
         name = request["name"]
         arguments = request["arguments"]
 
         # ----------------------------------------------------
-        # Enforce required tool sequence
+        # Never allow Git commit through autonomous loop
         # ----------------------------------------------------
 
-        if (
-            len(completed_required_tools)
-            < len(required_tools)
-        ):
+        if name == "git_commit":
 
-            expected_tool = required_tools[
-                len(completed_required_tools)
-            ]
+            tool_result = (
+                "ERROR: git_commit is not allowed during "
+                "this autonomous task. Do not commit."
+            )
 
-            if name != expected_tool:
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": content
+                }
+            )
 
-                print()
-                print(
-                    f"BLOCKED: Expected tool "
-                    f"'{expected_tool}', but AI requested "
-                    f"'{name}'."
+            messages.append(
+                {
+                    "role": "user",
+                    "content": tool_result
+                }
+            )
+
+            continue
+
+        # ----------------------------------------------------
+        # Controller rules
+        # ----------------------------------------------------
+
+        blocked = False
+        tool_result = ""
+
+        # ----------------------------------------------------
+        # Block access outside workspace
+        # ----------------------------------------------------
+
+        if name == "read_file":
+
+            path = arguments.get("path", "")
+
+            if path == "agent.py" or path.startswith(
+                "../"
+            ):
+
+                blocked = True
+
+                tool_result = (
+                    "ERROR: agent.py is outside the "
+                    "controlled workspace. "
+                    "Only files inside workspace/ may be "
+                    "read or modified. "
+                    "Use calculator.py or "
+                    "test_calculator.py."
+                )
+
+        # ----------------------------------------------------
+        # Do not test before actual modifications
+        # ----------------------------------------------------
+
+        if name == "run_tests":
+
+            if not required_modified_files.issubset(
+                written_files
+            ):
+
+                blocked = True
+
+                missing_files = (
+                    required_modified_files
+                    - written_files
                 )
 
                 tool_result = (
-                    f"ERROR: The next required tool is "
-                    f"'{expected_tool}'. "
-                    f"Do not call '{name}'."
-                )
-
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": content
-                    }
-                )
-
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Tool '{name}' was blocked.\n\n"
-                            f"{tool_result}"
+                    "ERROR: Tests are blocked because the "
+                    "required files have not actually been "
+                    "modified yet.\n\n"
+                    "You must use write_file for:\n"
+                    + "\n".join(
+                        f"- {path}"
+                        for path in sorted(
+                            missing_files
                         )
-                    }
+                    )
+                    + "\n\n"
+                    "Do not print code and claim that it was "
+                    "written. Actually call write_file."
                 )
-
-                continue
 
         # ----------------------------------------------------
-        # Track repeated calls
+        # Do not inspect final Git state too early
+        # ----------------------------------------------------
+
+        if name == "git_status":
+
+            if not required_modified_files.issubset(
+                written_files
+            ):
+
+                blocked = True
+
+                tool_result = (
+                    "ERROR: git_status is premature. "
+                    "First modify both calculator.py and "
+                    "test_calculator.py, then run tests."
+                )
+
+            elif not tests_passed:
+
+                blocked = True
+
+                tool_result = (
+                    "ERROR: git_status is premature. "
+                    "First run pytest and make sure the "
+                    "tests pass."
+                )
+
+            elif git_status_checked:
+
+                blocked = True
+
+                tool_result = (
+                    "ERROR: git_status has already been "
+                    "completed. Do not call it again."
+                )
+
+        # ----------------------------------------------------
+        # git_diff only after git_status
+        # ----------------------------------------------------
+
+        if name == "git_diff":
+
+            if not git_status_checked:
+
+                blocked = True
+
+                tool_result = (
+                    "ERROR: git_diff is premature. "
+                    "Run git_status first."
+                )
+
+            elif git_diff_checked:
+
+                blocked = True
+
+                tool_result = (
+                    "ERROR: git_diff has already been "
+                    "completed. Do not call it again."
+                )
+
+        # ----------------------------------------------------
+        # Block repeated identical calls
         # ----------------------------------------------------
 
         signature = (
@@ -1226,40 +1473,31 @@ def main():
             )
         )
 
-        previous_calls.append(
-            signature
-        )
+        previous_calls.append(signature)
 
-        # ----------------------------------------------------
-        # Detect repeated calls
-        # ----------------------------------------------------
-
-        if (
+        repeated = (
             len(previous_calls) >= 3
             and
             previous_calls[-1]
             == previous_calls[-2]
             == previous_calls[-3]
-        ):
+        )
 
-            print()
-            print(
-                "WARNING: AI has repeated the same "
-                "tool call three times."
-            )
+        if repeated:
+
+            blocked = True
 
             tool_result = (
                 "ERROR: You have repeated the same "
                 "tool call three times without making "
-                "progress. Stop repeating it and "
-                "complete the task."
+                "progress. Choose the next required step."
             )
 
-        else:
+        # ----------------------------------------------------
+        # Execute tool
+        # ----------------------------------------------------
 
-            # ------------------------------------------------
-            # Execute tool
-            # ------------------------------------------------
+        if not blocked:
 
             print()
             print(
@@ -1272,60 +1510,103 @@ def main():
             )
 
             # ------------------------------------------------
-            # Mark required tool complete
+            # Track successful write_file calls
             # ------------------------------------------------
 
-            if (
-                len(completed_required_tools)
-                < len(required_tools)
-                and
-                name
-                == required_tools[
-                    len(completed_required_tools)
-                ]
-            ):
+            if name == "write_file":
 
-                completed_required_tools.append(
-                    name
-                )
+                path = arguments.get("path")
+
+                if (
+                    path in required_modified_files
+                    and
+                    tool_result.startswith(
+                        "WRITE SUCCESS"
+                    )
+                ):
+
+                    written_files.add(path)
+
+            # ------------------------------------------------
+            # Track successful tests
+            # ------------------------------------------------
+
+            if name == "run_tests":
+
+                if tool_result.startswith(
+                    "TEST RESULT: PASS"
+                ):
+
+                    tests_passed = True
+
+                else:
+
+                    tests_passed = False
+
+            # ------------------------------------------------
+            # Track Git status
+            # ------------------------------------------------
+
+            if name == "git_status":
+
+                if tool_result.startswith(
+                    "GIT STATUS"
+                ):
+
+                    git_status_checked = True
+
+            # ------------------------------------------------
+            # Track Git diff
+            # ------------------------------------------------
+
+            if name == "git_diff":
+
+                if tool_result.startswith(
+                    "GIT DIFF"
+                ):
+
+                    git_diff_checked = True
+
+        else:
+
+            print()
+            print(
+                f"BLOCKED: {tool_result}"
+            )
 
         # ----------------------------------------------------
         # Print result
         # ----------------------------------------------------
 
         print()
-        print(
-            "TOOL RESULT:"
-        )
+        print("TOOL RESULT:")
         print(tool_result)
 
         # ----------------------------------------------------
-        # Stop after git_diff
+        # Show controller state
         # ----------------------------------------------------
 
-        if (
-            completed_required_tools
-            == required_tools
-        ):
-
-            print()
-            print(
-                "=" * 60
-            )
-            print(
-                "GIT INSPECTION COMPLETE"
-            )
-            print(
-                "=" * 60
-            )
-            print(
-                "The required Git inspection is complete."
-            )
-
-            break
+        print()
+        print("CONTROLLER STATE:")
+        print(
+            f"Modified files: "
+            f"{sorted(written_files)}"
+        )
+        print(
+            f"Tests passed: "
+            f"{tests_passed}"
+        )
+        print(
+            f"Git status checked: "
+            f"{git_status_checked}"
+        )
+        print(
+            f"Git diff checked: "
+            f"{git_diff_checked}"
+        )
 
         # ----------------------------------------------------
-        # Add conversation history
+        # Send tool result back to model
         # ----------------------------------------------------
 
         messages.append(
@@ -1339,8 +1620,12 @@ def main():
             {
                 "role": "user",
                 "content": (
-                    f"Tool '{name}' returned:\n\n"
-                    f"{tool_result}"
+                    f"Tool '{name}' result:\n\n"
+                    f"{tool_result}\n\n"
+                    "Continue the task using the actual "
+                    "tools. Do not claim that an action was "
+                    "performed unless the tool result "
+                    "confirms it."
                 )
             }
         )
@@ -1348,26 +1633,10 @@ def main():
     else:
 
         print()
-        print(
-            "=" * 60
-        )
-        print(
-            "AGENT STOPPED"
-        )
-        print(
-            "=" * 60
-        )
+        print("=" * 60)
+        print("AGENT STOPPED: MAX STEPS REACHED")
+        print("=" * 60)
 
-        print(
-            "Agent stopped because it reached "
-            f"the maximum number of steps "
-            f"({MAX_STEPS})."
-        )
-
-
-# ============================================================
-# PYTHON ENTRY POINT
-# ============================================================
 
 if __name__ == "__main__":
     main()
