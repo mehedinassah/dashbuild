@@ -32,7 +32,7 @@ def _reset(ws):
     _git(ws, "clean", "-fd", "--", ".")
 
 
-def run_task(model, workspace, task, max_attempts=3, state_file="state.json"):
+def run_task(model, workspace, task, max_attempts=3, state_file="state.json", label=None):
     ws = Path(workspace).resolve()
 
     dirty = _git(ws, "status", "--porcelain", "--", ".").stdout.strip()
@@ -96,7 +96,7 @@ def run_task(model, workspace, task, max_attempts=3, state_file="state.json"):
         answer = input("Commit these changes? [y/N] ").strip().lower()
         if answer == "y":
             _git(ws, "add", "-A", "--", ".")
-            c = _git(ws, "commit", "-m", f"Worker: {task[:60]}")
+            c = _git(ws, "commit", "-m", f"Worker: {(label or task)[:60]}")
             print(c.stdout or c.stderr)
             outcome["status"] = "committed"
         else:

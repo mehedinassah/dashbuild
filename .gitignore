@@ -8,3 +8,4 @@ state.json
 __pycache__/
 state.json
 db.sqlite3
+plan.json
