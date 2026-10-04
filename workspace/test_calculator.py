@@ -16,3 +16,9 @@ def test_modulus_by_zero():
     assert calculate(10, 0, 'modulus') == 'Error: Modulus by zero'
 def test_invalid_operation():
     assert calculate(10, 5, 'invalid') == 'Error: Invalid operation'
+
+
+def test_power():
+    assert calculate(2, 3, 'power') == 8
+    assert calculate(-2, 3, 'power') == -8
+    assert calculate(0, 3, 'power') == 0

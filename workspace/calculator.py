@@ -13,5 +13,7 @@ def calculate(a, b, operation):
         if b == 0:
             return 'Error: Modulus by zero'
         return a % b
+    elif operation == 'power':
+        return a ** b
     else:
         return 'Error: Invalid operation'
