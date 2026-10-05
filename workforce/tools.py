@@ -113,6 +113,15 @@ def make_tools(workspace, state):
             if old_lines >= 10 and len(content.splitlines()) < old_lines * 0.7:
                 return ("REJECTED: the new file is much shorter than the old one. "
                         "Keep everything that is not part of the change.")
+        if str(path).endswith(".html"):
+            for m in re.finditer(r"{%\s*extends\s+['\"]([^'\"]+)['\"]", content):
+                target = m.group(1)
+                found = any(q.as_posix() == target or q.as_posix().endswith("/" + target)
+                            for q in ws.rglob("*.html"))
+                if not found:
+                    return ("REJECTED: the template extends '" + target + "' which does not "
+                            "exist. Write a complete standalone HTML page with <html>, <head> "
+                            "and <body>, and no extends tag.")
         if str(path).endswith(".py"):
             problem = python_problem(content)
             if problem:
