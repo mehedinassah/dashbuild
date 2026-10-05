@@ -2,7 +2,7 @@ import json
 import subprocess
 import time
 from pathlib import Path
-from .tools import make_tools
+from .tools import make_tools, test_names, count_tests_run
 from .worker import run_worker
 from .review import review
 
@@ -25,6 +25,26 @@ def _git(ws, *args):
                           text=True, timeout=60)
 
 
+def project_notes(ws):
+    p = Path(ws) / ".workforce.json"
+    notes = json.loads(p.read_text()).get("notes", "") if p.exists() else ""
+    return ("\n\nPROJECT RULES:\n" + notes) if notes else ""
+
+
+def _new_test_names(ws):
+    _git(ws, "add", "-N", "--", ".")
+    names = _git(ws, "diff", "HEAD", "--name-only", "--relative", "--", ".").stdout.split()
+    added = []
+    for rel in names:
+        base = Path(rel).name
+        if not ((base.startswith("test_") or base == "tests.py") and base.endswith(".py")):
+            continue
+        old = _git(ws, "show", f"HEAD:./{rel}")
+        old_names = test_names(old.stdout) if old.returncode == 0 else set()
+        added += sorted(test_names((ws / rel).read_text()) - old_names)
+    return added
+
+
 def _reset(ws):
     """Restore the workspace folder to the last commit."""
     _git(ws, "reset", "-q", "--", ".")
@@ -42,6 +62,8 @@ def run_task(model, workspace, task, max_attempts=3, state_file="state.json", la
 
     history, touched, feedback, approved = [], set(), None, False
     reviewer_notes = ''
+    baseline = count_tests_run(ws)
+    print(f"Baseline: {baseline} tests run at the last commit.")
 
     for attempt in range(1, max_attempts + 1):
         if attempt > 1:
@@ -55,7 +77,7 @@ def run_task(model, workspace, task, max_attempts=3, state_file="state.json", la
                        "back to their original state. Start again and avoid "
                        "these problems.")
         state = {}
-        res = run_worker(model=model, system=CODER_SYSTEM, task=prompt,
+        res = run_worker(model=model, system=CODER_SYSTEM + project_notes(ws), task=prompt,
                          tools=make_tools(ws, state), state=state)
         touched |= set(res.get("files", []))
 
@@ -65,6 +87,19 @@ def run_task(model, workspace, task, max_attempts=3, state_file="state.json", la
             history.append({"attempt": attempt, "stage": "coder", "result": res["status"]})
             continue
 
+        added = _new_test_names(ws)
+        if added and baseline is not None:
+            now = count_tests_run(ws)
+            if now is not None and now < baseline + len(added):
+                print(f"\nBLOCKING: tests were added but the runner ran only {now} (expected at least {baseline + len(added)}).")
+                feedback = ("You added tests (" + ", ".join(added) + ") but the test runner "
+                            "does not run them. Write tests as methods named test_something "
+                            "inside a class that inherits from django.test.TestCase, and use "
+                            "self.client. Never write module-level test functions or use "
+                            "pytest fixtures.")
+                history.append({"attempt": attempt, "stage": "collect-check", "blocking": True,
+                                "notes": feedback})
+                continue
         print("\n" + "=" * 60 + f"\nATTEMPT {attempt}: REVIEWER\n" + "=" * 60)
         rev = review(model, ws, task)
         notes = rev.get("summary") or ""

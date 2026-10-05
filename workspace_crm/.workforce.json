@@ -1,7 +1,20 @@
 {
-  "test_cmd": ["python", "manage.py", "test"],
+  "test_cmd": [
+    "python",
+    "manage.py",
+    "test"
+  ],
   "commands": [
-    ["python", "manage.py", "makemigrations"],
-    ["python", "manage.py", "check"]
-  ]
+    [
+      "python",
+      "manage.py",
+      "makemigrations"
+    ],
+    [
+      "python",
+      "manage.py",
+      "check"
+    ]
+  ],
+  "notes": "This is a Django project. Tests must be methods named test_something inside classes that inherit from django.test.TestCase; use self.client for requests; never write module-level test functions or pytest fixtures. Import every name you use (for example: from .models import Customer). Templates must be complete standalone HTML pages; do not extend any base template because none exists. Do not edit existing code that the task does not mention."
 }

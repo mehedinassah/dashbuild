@@ -1,4 +1,5 @@
 import ast
+import io
 import json
 import re
 import subprocess
@@ -10,6 +11,29 @@ def test_names(text):
     return set(re.findall(r"^\s*def (test_\w+)", text, re.M))
 
 
+def undefined_names(src):
+    try:
+        from pyflakes import api, reporter
+    except ImportError:
+        return []
+    out = io.StringIO()
+    api.check(src, "code", reporter.Reporter(out, out))
+    return [l for l in out.getvalue().splitlines() if "undefined name" in l]
+
+
+def count_tests_run(ws):
+    ws = Path(ws)
+    p = ws / ".workforce.json"
+    cfg = json.loads(p.read_text()) if p.exists() else {}
+    cmd = list(cfg.get("test_cmd") or ["python", "-m", "pytest", "-q"])
+    if cmd[0] == "python":
+        cmd[0] = sys.executable
+    r = subprocess.run(cmd, cwd=ws, capture_output=True, text=True, timeout=180)
+    out = r.stdout + r.stderr
+    m = re.search(r"Ran (\d+) tests?", out) or re.search(r"(\d+) passed", out)
+    return int(m.group(1)) if m else None
+
+
 def python_problem(src):
     """Return a description of an obvious structural problem, or None."""
     try:
@@ -17,6 +41,10 @@ def python_problem(src):
     except SyntaxError as e:
         return (f"this is not valid Python (line {e.lineno}: {e.msg}). Write it "
                 "again with correct line breaks and indentation.")
+    undefined = undefined_names(src)
+    if undefined:
+        return ("a name is used but never imported or defined: " + undefined[0]
+                + ". Add the missing import.")
     seen, imports = set(), set()
     for node in tree.body:
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):

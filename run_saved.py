@@ -18,7 +18,7 @@ for i, t in enumerate(tasks, 1):
     if done:
         prompt += "Already completed and committed:\n- " + "\n- ".join(done) + "\n"
     prompt += (f"\nYOUR TASK NOW (only this, nothing more):\n{t}\n\n"
-               "Add or update tests for what you build. If you change models, "
+               "Only write tests if the task above asks for tests. If you change models, "
                "run 'python manage.py makemigrations <app>' before the tests. "
                "Finish by running the tests.")
     out = run_task(model, ws, prompt, label=t)
