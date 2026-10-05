@@ -14,7 +14,7 @@ for i, t in enumerate(tasks, 1):
     if i < start:
         continue
     print("\n" + "#" * 60 + f"\nTASK {i} of {len(tasks)}: {t}\n" + "#" * 60)
-    prompt = f"Overall goal: {goal}\n"
+    prompt = ""
     if done:
         prompt += "Already completed and committed:\n- " + "\n- ".join(done) + "\n"
     prompt += (f"\nYOUR TASK NOW (only this, nothing more):\n{t}\n\n"
