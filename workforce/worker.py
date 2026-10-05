@@ -55,6 +55,9 @@ def run_worker(*, model, system, task, tools, state,
                     problems.append("you have not written any files yet")
                 if not state["tests_passed"]:
                     problems.append("tests have not passed since your last change; call run_tests")
+            if state.get("undefined"):
+                problems.append("fix these undefined names first: " + "; ".join(
+                    f"{k}: {v}" for k, v in state["undefined"].items()))
             if not problems:
                 print("DONE:", (msg.content or "")[:300])
                 return {"status": "done", "summary": msg.content, "steps": step,

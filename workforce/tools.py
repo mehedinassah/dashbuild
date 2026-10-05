@@ -41,10 +41,6 @@ def python_problem(src):
     except SyntaxError as e:
         return (f"this is not valid Python (line {e.lineno}: {e.msg}). Write it "
                 "again with correct line breaks and indentation.")
-    undefined = undefined_names(src)
-    if undefined:
-        return ("a name is used but never imported or defined: " + undefined[0]
-                + ". Add the missing import.")
     seen, imports = set(), set()
     for node in tree.body:
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -130,7 +126,16 @@ def make_tools(workspace, state):
         p.write_text(content)
         state["written"].add(path)
         state["tests_passed"] = False
-        return f"Wrote {path}"
+        warn = ""
+        if str(path).endswith(".py"):
+            und = undefined_names(content)
+            if und:
+                state.setdefault("undefined", {})[str(path)] = und[0]
+                warn = (" WARNING: " + und[0] + " -- a name is used but never imported "
+                        "or defined. Fix this before finishing (for example add the import).")
+            else:
+                state.setdefault("undefined", {}).pop(str(path), None)
+        return f"Wrote {path}" + warn
 
     def append_file(path: str, text: str) -> str:
         """Add text to the END of an existing file. Use this to add new tests.
@@ -185,6 +190,8 @@ def make_tools(workspace, state):
             command: The full command. Only allow-listed commands work.
         """
         parts = command.split()
+        if any(x in parts for x in ("&&", "||", ";", "|", ">")):
+            return "REJECTED: run one simple command only, with no && or pipes."
         allowed = cfg.get("commands", [])
         if not parts or not any(parts[:len(a)] == a for a in allowed):
             return ("REJECTED: command not allowed. Allowed: "
