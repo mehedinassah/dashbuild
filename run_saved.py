@@ -5,7 +5,8 @@ from workforce.manager import run_task
 
 start = int(sys.argv[1]) if len(sys.argv) > 1 else 1
 ws = Path(__file__).parent / "workspace_crm"
-model = "qwen2.5:7b"
+from workforce.config import CFG
+model = CFG["model"]
 plan = json.loads(Path("plan.json").read_text())
 goal, tasks = plan["goal"], plan["tasks"]
 

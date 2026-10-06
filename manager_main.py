@@ -8,6 +8,6 @@ DEFAULT_TASK = ("Add a 'modulus' operation to calculate() in calculator.py, hand
                 "tests passing.")
 
 task = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_TASK
-model = sys.argv[2] if len(sys.argv) > 2 else "qwen2.5:7b"
+model = sys.argv[2] if len(sys.argv) > 2 else __import__("workforce.config", fromlist=["CFG"]).CFG["model"]
 ws = sys.argv[3] if len(sys.argv) > 3 else "workspace"
 run_task(model, Path(__file__).parent / ws, task)

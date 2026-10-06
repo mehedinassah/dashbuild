@@ -94,3 +94,9 @@ def review(model, workspace, task, auto_reject=True):
     # Anything unclear counts as a rejection.
     result["verdict"] = "APPROVE" if "VERDICT: APPROVE" in summary.upper() else "REJECT"
     return result
+
+
+# Editable instructions: if prompts/reviewer.txt exists it replaces the text above.
+_p = Path(__file__).parent.parent / "prompts" / "reviewer.txt"
+if _p.exists():
+    REVIEW_SYSTEM = _p.read_text().strip()

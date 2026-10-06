@@ -1,6 +1,8 @@
 import json
 from ollama import chat
 
+from .config import CFG
+
 
 def first_json_call(text):
     dec = json.JSONDecoder()
@@ -17,7 +19,7 @@ def first_json_call(text):
 
 
 def run_worker(*, model, system, task, tools, state,
-               max_steps=15, require_tests=True, num_ctx=8192):
+               max_steps=CFG["max_steps"], require_tests=True, num_ctx=CFG["num_ctx"]):
     table = {f.__name__: f for f in tools}
     messages = [{"role": "system", "content": system},
                 {"role": "user", "content": task}]
@@ -26,8 +28,8 @@ def run_worker(*, model, system, task, tools, state,
     for step in range(1, max_steps + 1):
         print(f"\n--- step {step} ---")
         resp = chat(model=model, messages=messages, tools=tools,
-                    options={"num_ctx": num_ctx, "temperature": 0.2,
-                             "num_predict": 2048, "repeat_penalty": 1.1})
+                    options={"num_ctx": num_ctx, "temperature": CFG["temperature"],
+                             "num_predict": CFG["num_predict"], "repeat_penalty": 1.1})
         msg = resp.message
         if getattr(resp, "done_reason", None) == "length":
             print("CONTROLLER: reply hit the length limit and was discarded")

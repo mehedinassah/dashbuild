@@ -3,6 +3,7 @@ import subprocess
 import time
 from pathlib import Path
 from .tools import make_tools, test_names, count_tests_run
+from .config import CFG
 from .worker import run_worker
 from .review import review
 
@@ -52,7 +53,7 @@ def _reset(ws):
     _git(ws, "clean", "-fd", "--", ".")
 
 
-def run_task(model, workspace, task, max_attempts=3, state_file="state.json", label=None):
+def run_task(model, workspace, task, max_attempts=CFG["max_attempts"], state_file="state.json", label=None):
     ws = Path(workspace).resolve()
 
     dirty = _git(ws, "status", "--porcelain", "--", ".").stdout.strip()
@@ -144,3 +145,9 @@ def run_task(model, workspace, task, max_attempts=3, state_file="state.json", la
     runs.append(outcome)
     Path(state_file).write_text(json.dumps(runs, indent=2))
     return outcome
+
+
+# Editable instructions: if prompts/coder.txt exists it replaces the text above.
+_p = Path(__file__).parent.parent / "prompts" / "coder.txt"
+if _p.exists():
+    CODER_SYSTEM = _p.read_text().strip()

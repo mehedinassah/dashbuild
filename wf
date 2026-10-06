@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+cd "$(dirname "$0")" && source .venv/bin/activate
+case "$1" in
+  run)    shift; python -u run_saved.py "$@" ;;
+  task)   shift; python -u manager_main.py "$@" ;;
+  test)   python -m pytest tests -q ;;
+  reset)  git reset -q -- "${2:-workspace_crm}" && git checkout -- "${2:-workspace_crm}" && git clean -fd -- "${2:-workspace_crm}" && echo "reset done" ;;
+  status) git status --short; git log --oneline | head -5 ;;
+  serve)  cd workspace_crm && python manage.py runserver ;;
+  models) ollama list; ollama ps ;;
+  *) echo "usage: ./wf run [N] | task \"text\" MODEL FOLDER | test | reset [folder] | status | serve | models" ;;
+esac
