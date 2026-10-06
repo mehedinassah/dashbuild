@@ -76,3 +76,8 @@ into settings and urls, runs makemigrations/check/tests, and rolls back on failu
 Field types: str, text, int, decimal, bool, date, email. First field must be str.
 Then run: cd workspace_crm && python manage.py migrate
 Generator code: workforce/generator.py (templates are the strings in that file).
+
+`./wf make refresh Product name:str sku:str price:decimal stock:int` re-applies the
+look (layout, buttons, menu entry) to an existing generated module. The shared
+layout and dashboard live in the `core` app, created automatically; its source is
+workforce/ui.py. Change colours and layout there, then run refresh on each module.

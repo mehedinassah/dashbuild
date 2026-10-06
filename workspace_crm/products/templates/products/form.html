@@ -1,10 +1,10 @@
 {% extends "products/base.html" %}
 {% block content %}
 <h1>{% if object %}Edit{% else %}New{% endif %} Product</h1>
-<form method="post">
+<form method="post" class="panel">
   {% csrf_token %}
   {{ form.as_p }}
-  <button type="submit">Save</button>
-  <a href="{% url "products:list" %}">Cancel</a>
+  <button type="submit" class="btn">Save</button>
+  <a class="btn secondary" href="{% url "products:list" %}">Cancel</a>
 </form>
 {% endblock %}

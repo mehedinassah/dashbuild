@@ -28,3 +28,13 @@ def test_generate_full_module(tmp_path):
     assert "products.urls" in (tmp_path / "config" / "urls.py").read_text()
     with pytest.raises(SystemExit):
         generate(tmp_path, "Product", ["name:str"])
+
+
+def test_generated_project_passes_all_its_tests_and_has_a_dashboard(tmp_path):
+    subprocess.run([sys.executable, "-m", "django", "startproject", "config", str(tmp_path)],
+                   check=True, capture_output=True)
+    generate(tmp_path, "Product", ["name:str", "price:decimal"])
+    assert (tmp_path / "core" / "templates" / "core" / "base.html").exists()
+    r = subprocess.run([sys.executable, "manage.py", "test"], cwd=tmp_path,
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr

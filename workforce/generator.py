@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from .ui import APPS, BASE, CONFIRM, CORE_FILES, FORM, LIST
+
 FIELD_TYPES = {
     "str": "models.CharField(max_length=200)",
     "text": "models.TextField(blank=True)",
@@ -77,14 +79,6 @@ def build_values(model, fields):
         "POST": "\n".join(f'    "{n}": "{POST_SAMPLE[k]}",' for n, k in fields),
     }
 
-
-APPS = '''from django.apps import AppConfig
-
-
-class @MODEL@Config(AppConfig):
-    default_auto_field = "django.db.models.BigAutoField"
-    name = "@APP@"
-'''
 
 MODELS = '''from django.db import models
 
@@ -236,68 +230,6 @@ class @MODEL@CrudTests(TestCase):
         self.assertEqual(@MODEL@.objects.count(), 0)
 '''
 
-BASE = '''<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>@TITLE@</title>
-  <style>
-    body { font-family: sans-serif; margin: 2rem; }
-    table { border-collapse: collapse; margin-top: 1rem; }
-    th, td { border: 1px solid #ccc; padding: 0.4rem 0.8rem; text-align: left; }
-  </style>
-</head>
-<body>
-  {% block content %}{% endblock %}
-</body>
-</html>
-'''
-
-LIST = '''{% extends "@APP@/base.html" %}
-{% block content %}
-<h1>@TITLE@</h1>
-<form method="get">
-  <input type="text" name="q" value="{{ q }}" placeholder="Search">
-  <button type="submit">Search</button>
-  <a href="{% url "@APP@:create" %}">Add new</a>
-</form>
-<table>
-  <thead><tr>@HEADERS@<th></th></tr></thead>
-  <tbody>
-  {% for item in items %}
-    <tr>@CELLS@<td><a href="{% url "@APP@:update" item.pk %}">Edit</a> <a href="{% url "@APP@:delete" item.pk %}">Delete</a></td></tr>
-  {% empty %}
-    <tr><td colspan="@COLSPAN@">Nothing here yet.</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
-{% endblock %}
-'''
-
-FORM = '''{% extends "@APP@/base.html" %}
-{% block content %}
-<h1>{% if object %}Edit{% else %}New{% endif %} @MODEL@</h1>
-<form method="post">
-  {% csrf_token %}
-  {{ form.as_p }}
-  <button type="submit">Save</button>
-  <a href="{% url "@APP@:list" %}">Cancel</a>
-</form>
-{% endblock %}
-'''
-
-CONFIRM = '''{% extends "@APP@/base.html" %}
-{% block content %}
-<h1>Delete @MODEL@</h1>
-<p>Delete "{{ object }}"? This cannot be undone.</p>
-<form method="post">
-  {% csrf_token %}
-  <button type="submit">Yes, delete</button>
-  <a href="{% url "@APP@:list" %}">Cancel</a>
-</form>
-{% endblock %}
-'''
-
 
 def insert_entry(text, pattern, entry, what):
     m = re.search(pattern, text, re.S)
@@ -329,6 +261,7 @@ def generate(ws, model, specs):
     if not re.fullmatch(r"[A-Z][A-Za-z0-9]*", model):
         raise SystemExit("Model name must be CamelCase, for example Product or OrderItem.")
     values = build_values(model, parse_fields(specs))
+    ensure_core(ws)
     app = values["APP"]
     app_dir = ws / app
     settings_p, urls_p = ws / "config" / "settings.py", ws / "config" / "urls.py"
@@ -381,9 +314,71 @@ def main(argv):
     if argv and argv[0].startswith("--ws="):
         ws = root / argv[0][5:]
         argv = argv[1:]
-    if len(argv) < 3 or argv[0] != "crud":
-        raise SystemExit("usage: ./wf make crud ModelName name:str price:decimal ...")
-    generate(ws, argv[1], argv[2:])
+    if len(argv) < 3 or argv[0] not in ("crud", "refresh"):
+        raise SystemExit("usage: ./wf make crud|refresh ModelName name:str price:decimal ...")
+    (generate if argv[0] == "crud" else refresh)(ws, argv[1], argv[2:])
+
+
+def ensure_core(ws):
+    """Create the shared 'core' app (layout, menu, dashboard) once, and wire it in."""
+    ws = Path(ws).resolve()
+    if (ws / "core").exists():
+        return
+    settings_p, urls_p = ws / "config" / "settings.py", ws / "config" / "urls.py"
+    old_settings, old_urls = settings_p.read_text(), urls_p.read_text()
+    try:
+        for rel, text in CORE_FILES.items():
+            target = ws / "core" / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text)
+        settings_p.write_text(insert_entry(old_settings, r"INSTALLED_APPS\s*=\s*\[(.*?)\n\]",
+                                           "'core'", "INSTALLED_APPS in config/settings.py"))
+        new_urls = insert_entry(old_urls, r"urlpatterns\s*=\s*\[(.*?)\n\]",
+                                "path('', include('core.urls'))", "urlpatterns in config/urls.py")
+        urls_p.write_text(fix_include_import(new_urls))
+        for label, args in (("check", ["check"]), ("core tests", ["test", "core"])):
+            code, out = run(ws, *args)
+            if code != 0:
+                raise SystemExit(label + " failed:\n" + out[-1500:])
+    except SystemExit:
+        shutil.rmtree(ws / "core", ignore_errors=True)
+        settings_p.write_text(old_settings)
+        urls_p.write_text(old_urls)
+        raise
+    print("Created the shared 'core' app (layout, menu, dashboard at /).")
+
+
+def refresh(ws, model, specs):
+    """Re-render the look (templates and app config) of an existing generated module."""
+    ws = Path(ws).resolve()
+    values = build_values(model, parse_fields(specs))
+    app = values["APP"]
+    app_dir = ws / app
+    if not app_dir.exists():
+        raise SystemExit(f"{app}/ does not exist. Use 'crud' to create it.")
+    ensure_core(ws)
+    files = {
+        "apps.py": APPS,
+        f"templates/{app}/base.html": BASE,
+        f"templates/{app}/list.html": LIST,
+        f"templates/{app}/form.html": FORM,
+        f"templates/{app}/confirm_delete.html": CONFIRM,
+    }
+    old = {rel: ((app_dir / rel).read_text() if (app_dir / rel).exists() else None) for rel in files}
+    for rel, text in files.items():
+        target = app_dir / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(render(text, values))
+    code, out = run(ws, "test", app)
+    if code != 0:
+        for rel, text in old.items():
+            if text is None:
+                (app_dir / rel).unlink(missing_ok=True)
+            else:
+                (app_dir / rel).write_text(text)
+        print("FAILED. The old files were restored.\n" + out[-2500:])
+        raise SystemExit(1)
+    print(f"Refreshed {app}/ (look and menu entry). Tests passed.")
 
 
 if __name__ == "__main__":
