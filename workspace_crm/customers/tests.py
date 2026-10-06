@@ -23,3 +23,20 @@ class TestCustomerList(TestCase):
 
         # Check 'Amy' appears before 'Zed' in the page content
         self.assertLess(response.content.index(customer_amy.name.encode()), response.content.index('Zed'.encode()))
+
+
+
+class CustomerListViewTests(TestCase):
+    def test_customer_list_with_query(self):
+        # Create customers
+        zed = Customer.objects.create(name='Zed', email='zed@example.com', phone='1234567890')
+        amy = Customer.objects.create(name='Amy', email='amy@example.com', phone='0987654321')
+
+        # Request with query parameter 'q'
+        response = self.client.get('/customers/?q=am')
+
+        # Check status code and content
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Amy')
+        self.assertNotContains(response, 'Zed')
+        self.assertContains(response, 'name="q"')
