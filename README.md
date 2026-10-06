@@ -66,3 +66,13 @@ the folder, then fix by hand.
 - Its reviewer opinion cannot be trusted. Only the Python checks block.
 - Output quality depends on the model. Better free models arrive over time;
   switching is a one-word change.
+
+## Generator (no AI)
+
+    ./wf make crud Product name:str sku:str price:decimal stock:int
+
+Creates a full Django module (model, admin, views, URLs, templates, tests), wires it
+into settings and urls, runs makemigrations/check/tests, and rolls back on failure.
+Field types: str, text, int, decimal, bool, date, email. First field must be str.
+Then run: cd workspace_crm && python manage.py migrate
+Generator code: workforce/generator.py (templates are the strings in that file).
