@@ -6,4 +6,5 @@ class CustomersConfig(AppConfig):
     name = "customers"
     verbose_name = "Customers"
     crud_module = True
+    icon = "👥"
     list_url = "customer_list"

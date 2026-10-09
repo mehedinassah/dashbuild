@@ -2,7 +2,7 @@ from django.apps import apps
 from django.urls import NoReverseMatch, reverse
 
 
-def crud_modules(counts=False):
+def crud_modules(counts=False, recent=0, path=""):
     """Every app that sets crud_module = True, for the menu and the dashboard."""
     items = []
     for cfg in apps.get_app_configs():
@@ -12,9 +12,20 @@ def crud_modules(counts=False):
             url = reverse(getattr(cfg, "list_url", cfg.label + ":list"))
         except NoReverseMatch:
             continue
-        item = {"title": cfg.verbose_name, "url": url}
-        if counts:
+        item = {
+            "title": cfg.verbose_name,
+            "url": url,
+            "icon": getattr(cfg, "icon", "▦"),
+            "active": bool(path) and path.startswith(url),
+        }
+        if counts or recent:
             model = next(iter(cfg.get_models()), None)
-            item["count"] = model.objects.count() if model else 0
+            if model is None:
+                item["count"] = 0
+            else:
+                queryset = model.objects.all()
+                item["count"] = queryset.count()
+                if recent:
+                    item["recent"] = [str(o) for o in queryset.order_by("-pk")[:recent]]
         items.append(item)
     return items

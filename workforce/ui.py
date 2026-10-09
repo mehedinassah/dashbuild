@@ -211,3 +211,10 @@ class DashboardTests(TestCase):
 </html>
 ''',
 }
+
+
+# Newer look: new projects get it automatically, existing ones via ./wf make restyle
+from .theme import CORE_OVERRIDES  # noqa: E402
+
+CORE_FILES.update(CORE_OVERRIDES)
+APPS = APPS.replace("    crud_module = True\n", '    crud_module = True\n    icon = "📦"\n')

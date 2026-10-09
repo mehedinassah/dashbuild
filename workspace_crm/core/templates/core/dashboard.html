@@ -1,15 +1,32 @@
 {% extends "core/base.html" %}
 {% block title %}Dashboard{% endblock %}
 {% block content %}
-<h1>Dashboard</h1>
+<div class="head">
+  <h1>Dashboard</h1>
+  <span class="muted">{{ total }} records across {{ cards|length }} modules</span>
+</div>
 <div class="cards">
   {% for card in cards %}
   <a class="card" href="{{ card.url }}">
+    <span class="ico big">{{ card.icon }}</span>
     <span class="num">{{ card.count }}</span>
     <span class="label">{{ card.title }}</span>
   </a>
   {% empty %}
   <p>No modules yet. Create one with: ./wf make crud Product name:str price:decimal</p>
+  {% endfor %}
+</div>
+<div class="grid2">
+  {% for card in cards %}
+  <section class="panel wide">
+    <h2>{{ card.icon }} Recent {{ card.title }}</h2>
+    {% if card.recent %}
+    <ul class="recent">{% for r in card.recent %}<li>{{ r }}</li>{% endfor %}</ul>
+    {% else %}
+    <p class="muted">Nothing yet.</p>
+    {% endif %}
+    <a class="more" href="{{ card.url }}">View all →</a>
+  </section>
   {% endfor %}
 </div>
 {% endblock %}

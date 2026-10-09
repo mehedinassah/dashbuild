@@ -314,6 +314,9 @@ def main(argv):
     if argv and argv[0].startswith("--ws="):
         ws = root / argv[0][5:]
         argv = argv[1:]
+    if argv and argv[0] == "restyle":
+        restyle(ws)
+        return
     if len(argv) < 3 or argv[0] not in ("crud", "refresh"):
         raise SystemExit("usage: ./wf make crud|refresh ModelName name:str price:decimal ...")
     (generate if argv[0] == "crud" else refresh)(ws, argv[1], argv[2:])
@@ -379,6 +382,31 @@ def refresh(ws, model, specs):
         print("FAILED. The old files were restored.\n" + out[-2500:])
         raise SystemExit(1)
     print(f"Refreshed {app}/ (look and menu entry). Tests passed.")
+
+
+def restyle(ws):
+    """Rewrite the shared layout, menu and dashboard of an existing project."""
+    ws = Path(ws).resolve()
+    if not (ws / "core").exists():
+        raise SystemExit("No core app yet. Generate a module first: ./wf make crud ...")
+    from .theme import CORE_OVERRIDES
+    old = {}
+    for rel, text in CORE_OVERRIDES.items():
+        target = ws / "core" / rel
+        old[rel] = target.read_text() if target.exists() else None
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+    code, out = run(ws, "test")
+    if code != 0:
+        for rel, text in old.items():
+            target = ws / "core" / rel
+            if text is None:
+                target.unlink(missing_ok=True)
+            else:
+                target.write_text(text)
+        print("FAILED. The old files were restored.\n" + out[-2500:])
+        raise SystemExit(1)
+    print("Restyled core (layout, menu, dashboard). All project tests passed.")
 
 
 if __name__ == "__main__":

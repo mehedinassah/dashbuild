@@ -38,3 +38,12 @@ def test_generated_project_passes_all_its_tests_and_has_a_dashboard(tmp_path):
     r = subprocess.run([sys.executable, "manage.py", "test"], cwd=tmp_path,
                        capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_restyle_keeps_everything_working(tmp_path):
+    from workforce.generator import restyle
+    subprocess.run([sys.executable, "-m", "django", "startproject", "config", str(tmp_path)],
+                   check=True, capture_output=True)
+    generate(tmp_path, "Product", ["name:str"])
+    restyle(tmp_path)
+    assert "Recent" in (tmp_path / "core" / "templates" / "core" / "dashboard.html").read_text()

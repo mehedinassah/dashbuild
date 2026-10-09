@@ -6,3 +6,4 @@ class ProductConfig(AppConfig):
     name = "products"
     verbose_name = "Products"
     crud_module = True
+    icon = "📦"

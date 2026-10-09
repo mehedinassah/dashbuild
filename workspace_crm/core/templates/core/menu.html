@@ -1,2 +1,2 @@
-{% for item in items %}<a href="{{ item.url }}">{{ item.title }}</a>
+{% for item in items %}<a href="{{ item.url }}"{% if item.active %} class="active"{% endif %}><span class="ico">{{ item.icon }}</span>{{ item.title }}</a>
 {% endfor %}
