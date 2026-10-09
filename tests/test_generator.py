@@ -47,3 +47,31 @@ def test_restyle_keeps_everything_working(tmp_path):
     generate(tmp_path, "Product", ["name:str"])
     restyle(tmp_path)
     assert "Recent" in (tmp_path / "core" / "templates" / "core" / "dashboard.html").read_text()
+
+
+def test_unique_foreign_keys_and_protected_delete(tmp_path):
+    subprocess.run([sys.executable, "-m", "django", "startproject", "config", str(tmp_path)],
+                   check=True, capture_output=True)
+    generate(tmp_path, "Customer", ["name:str:unique", "email:email"])
+    generate(tmp_path, "Invoice", ["number:str:unique", "customer:fk:Customer", "total:decimal"])
+    generate(tmp_path, "InvoiceItem", ["description:str", "invoice:fk:Invoice", "quantity:int"])
+    assert "unique=True" in (tmp_path / "customers" / "models.py").read_text()
+    assert "ForeignKey" in (tmp_path / "invoices" / "models.py").read_text()
+    with pytest.raises(SystemExit):
+        generate(tmp_path, "Order", ["ref:str", "buyer:fk:Nobody"])
+    (tmp_path / "invoices" / "test_protect.py").write_text(
+        "from django.test import TestCase\n"
+        "from django.urls import reverse\n"
+        "from core.factories import make_instance\n"
+        "from customers.models import Customer\n"
+        "from .models import Invoice\n\n\n"
+        "class ProtectTests(TestCase):\n"
+        "    def test_cannot_delete_a_used_customer(self):\n"
+        "        invoice = make_instance(Invoice)\n"
+        "        response = self.client.post(reverse('customers:delete', args=[invoice.customer.pk]))\n"
+        "        self.assertEqual(response.status_code, 200)\n"
+        "        self.assertTrue(Customer.objects.filter(pk=invoice.customer.pk).exists())\n"
+    )
+    r = subprocess.run([sys.executable, "manage.py", "test"], cwd=tmp_path,
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr

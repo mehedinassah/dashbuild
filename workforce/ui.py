@@ -218,3 +218,9 @@ from .theme import CORE_OVERRIDES  # noqa: E402
 
 CORE_FILES.update(CORE_OVERRIDES)
 APPS = APPS.replace("    crud_module = True\n", '    crud_module = True\n    icon = "📦"\n')
+
+
+CONFIRM = CONFIRM.replace(
+    '<p>Delete "{{ object }}"? This cannot be undone.</p>',
+    '<p>Delete "{{ object }}"? This cannot be undone.</p>\n'
+    '  {% if protected %}<p class="errorlist">Cannot delete: other records still use this one.</p>{% endif %}')

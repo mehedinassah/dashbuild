@@ -35,23 +35,61 @@ def plural(word):
     return word + "s"
 
 
+def model_field(kind, extra):
+    if kind == "fk":
+        return f'models.ForeignKey("{plural(extra.lower())}.{extra}", on_delete=models.PROTECT)'
+    base = FIELD_TYPES[kind]
+    return base[:-1] + ", unique=True)" if extra == "unique" else base
+
+
 def parse_fields(specs):
+    """Each spec is name:type, name:type:unique or name:fk:ModelName."""
     fields = []
     for spec in specs:
-        name, _, kind = spec.partition(":")
-        kind = kind or "str"
+        parts = spec.split(":")
+        if len(parts) > 3:
+            raise SystemExit(f"Too many ':' in {spec!r}")
+        name = parts[0]
+        kind = parts[1] if len(parts) > 1 and parts[1] else "str"
+        extra = parts[2] if len(parts) > 2 else ""
         if not re.fullmatch(r"[a-z][a-z0-9_]*", name) or name in RESERVED:
             raise SystemExit(f"Bad field name {name!r}: use lowercase letters, digits and underscores.")
-        if kind not in FIELD_TYPES:
-            raise SystemExit(f"Bad type {kind!r} for {name}. Types: {', '.join(FIELD_TYPES)}")
-        if any(name == n for n, _ in fields):
+        if kind == "fk":
+            if not re.fullmatch(r"[A-Z][A-Za-z0-9]*", extra):
+                raise SystemExit(f"{name}: write a link as {name}:fk:ModelName")
+        elif kind not in FIELD_TYPES:
+            raise SystemExit(f"Bad type {kind!r} for {name}. Types: {', '.join(FIELD_TYPES)}, fk")
+        elif extra not in ("", "unique"):
+            raise SystemExit(f"Unknown option {extra!r} for {name}. The only option is unique.")
+        if any(name == f[0] for f in fields):
             raise SystemExit(f"Duplicate field: {name}")
-        fields.append((name, kind))
+        fields.append((name, kind, extra))
     if not fields:
         raise SystemExit("Give at least one field, for example name:str")
     if fields[0][1] != "str":
         raise SystemExit("The first field must be a str field: it is the display name and the main search field.")
     return fields
+
+
+def build_values(model, fields):
+    app = plural(model.lower())
+    quote = lambda names: ", ".join(f'"{n}"' for n in names)
+    for n, k, e in fields:
+        if k == "fk" and e == model:
+            raise SystemExit(f"{n}: a model cannot point at itself ({model}).")
+    search = [n for n, k, e in fields if k in ("str", "text", "email")]
+    return {
+        "APP": app,
+        "MODEL": model,
+        "TITLE": app.replace("_", " ").title(),
+        "LABEL": fields[0][0],
+        "FIELDS": quote([f[0] for f in fields]),
+        "SEARCH": quote(search),
+        "MODEL_FIELDS": "\n".join(f"    {n} = {model_field(k, e)}" for n, k, e in fields),
+        "HEADERS": "".join(f"<th>{n.replace('_', ' ').title()}</th>" for n, _, _ in fields),
+        "CELLS": "".join(f"<td>{{{{ item.{n} }}}}</td>" for n, _, _ in fields),
+        "COLSPAN": str(len(fields) + 1),
+    }
 
 
 def render(text, values):
@@ -60,24 +98,6 @@ def render(text, values):
     return text
 
 
-def build_values(model, fields):
-    app = plural(model.lower())
-    quote = lambda names: ", ".join(f'"{n}"' for n in names)
-    search = [n for n, k in fields if k in ("str", "text", "email")]
-    return {
-        "APP": app,
-        "MODEL": model,
-        "TITLE": app.replace("_", " ").title(),
-        "LABEL": fields[0][0],
-        "FIELDS": quote([n for n, _ in fields]),
-        "SEARCH": quote(search),
-        "MODEL_FIELDS": "\n".join(f"    {n} = {FIELD_TYPES[k]}" for n, k in fields),
-        "HEADERS": "".join(f"<th>{n.replace('_', ' ').title()}</th>" for n, _ in fields),
-        "CELLS": "".join(f"<td>{{{{ item.{n} }}}}</td>" for n, _ in fields),
-        "COLSPAN": str(len(fields) + 1),
-        "SAMPLE": "\n".join(f'    "{n}": {PY_SAMPLE[k]},' for n, k in fields),
-        "POST": "\n".join(f'    "{n}": "{POST_SAMPLE[k]}",' for n, k in fields),
-    }
 
 
 MODELS = '''from django.db import models
@@ -104,7 +124,7 @@ class @MODEL@Admin(admin.ModelAdmin):
     search_fields = (@SEARCH@,)
 '''
 
-VIEWS = '''from django.db.models import Q
+VIEWS = '''from django.db.models import ProtectedError, Q
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
@@ -153,6 +173,13 @@ class @MODEL@DeleteView(DeleteView):
     model = @MODEL@
     template_name = "@APP@/confirm_delete.html"
     success_url = reverse_lazy("@APP@:list")
+
+    def form_valid(self, form):
+        try:
+            return super().form_valid(form)
+        except ProtectedError:
+            context = self.get_context_data(object=self.object, protected=True)
+            return self.render_to_response(context)
 '''
 
 URLS = '''from django.urls import path
@@ -173,62 +200,116 @@ urlpatterns = [
 TESTS = '''from django.test import TestCase
 from django.urls import reverse
 
+from core.factories import make_instance, post_data
+
 from .models import @MODEL@
 
 LABEL = "@LABEL@"
 
-SAMPLE = {
-@SAMPLE@
-}
-
-POST = {
-@POST@
-}
-
 
 class @MODEL@CrudTests(TestCase):
-    def make(self, **extra):
-        data = dict(SAMPLE)
-        data.update(extra)
-        return @MODEL@.objects.create(**data)
-
     def test_str_is_the_first_field(self):
-        item = self.make()
-        self.assertEqual(str(item), SAMPLE[LABEL])
+        item = make_instance(@MODEL@)
+        self.assertEqual(str(item), str(getattr(item, LABEL)))
 
     def test_list_page_shows_items(self):
-        self.make()
+        item = make_instance(@MODEL@)
         response = self.client.get(reverse("@APP@:list"))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, SAMPLE[LABEL])
+        self.assertContains(response, getattr(item, LABEL))
 
     def test_search_filters_items(self):
-        self.make(**{LABEL: "Alpha thing"})
-        self.make(**{LABEL: "Beta thing"})
+        make_instance(@MODEL@, **{LABEL: "Alpha thing"})
+        make_instance(@MODEL@, **{LABEL: "Beta thing"})
         response = self.client.get(reverse("@APP@:list"), {"q": "alp"})
         self.assertContains(response, "Alpha thing")
         self.assertNotContains(response, "Beta thing")
 
     def test_create(self):
-        response = self.client.post(reverse("@APP@:create"), POST)
+        response = self.client.post(reverse("@APP@:create"), post_data(@MODEL@))
         self.assertEqual(response.status_code, 302)
         self.assertEqual(@MODEL@.objects.count(), 1)
 
     def test_update(self):
-        item = self.make()
-        data = dict(POST)
-        data[LABEL] = "Changed"
+        item = make_instance(@MODEL@)
+        data = post_data(@MODEL@, **{LABEL: "Changed"})
         response = self.client.post(reverse("@APP@:update", args=[item.pk]), data)
         self.assertEqual(response.status_code, 302)
         item.refresh_from_db()
         self.assertEqual(str(item), "Changed")
 
     def test_delete(self):
-        item = self.make()
+        item = make_instance(@MODEL@)
         response = self.client.post(reverse("@APP@:delete", args=[item.pk]))
         self.assertEqual(response.status_code, 302)
         self.assertEqual(@MODEL@.objects.count(), 0)
 '''
+
+FACTORIES = '''"""Helpers for generated tests: build valid sample records for any model."""
+import itertools
+from decimal import Decimal
+
+from django.db import models
+
+_counter = itertools.count(1)
+
+
+def sample_value(field, n):
+    if isinstance(field, models.ForeignKey):
+        return make_instance(field.related_model)
+    if isinstance(field, models.BooleanField):
+        return True
+    if isinstance(field, models.DecimalField):
+        return Decimal(n)
+    if isinstance(field, models.IntegerField):
+        return n
+    if isinstance(field, models.DateField):
+        return "2026-01-15"
+    if isinstance(field, models.EmailField):
+        return f"sample{n}@example.com"
+    if isinstance(field, models.TextField):
+        return f"Some text {n}"
+    return f"Sample {n}"
+
+
+def make_instance(model, **overrides):
+    n = next(_counter)
+    data = {}
+    for field in model._meta.concrete_fields:
+        if not field.primary_key:
+            data[field.name] = sample_value(field, n)
+    data.update(overrides)
+    return model.objects.create(**data)
+
+
+def post_data(model, **overrides):
+    n = next(_counter)
+    data = {}
+    for field in model._meta.concrete_fields:
+        if field.primary_key:
+            continue
+        if isinstance(field, models.ForeignKey):
+            data[field.name] = make_instance(field.related_model).pk
+        elif isinstance(field, models.BooleanField):
+            data[field.name] = "on"
+        else:
+            data[field.name] = sample_value(field, n)
+    data.update(overrides)
+    return data
+'''
+
+
+def add_test_helpers(ws):
+    target = Path(ws) / "core" / "factories.py"
+    if not target.exists():
+        target.write_text(FACTORIES)
+
+
+def check_fk_targets(ws, fields):
+    for name, kind, extra in fields:
+        if kind == "fk" and not (Path(ws) / plural(extra.lower()) / "models.py").exists():
+            raise SystemExit(f"{name}: the module {extra} does not exist yet. Generate it first.")
+
 
 
 def insert_entry(text, pattern, entry, what):
@@ -260,8 +341,11 @@ def generate(ws, model, specs):
         raise SystemExit(f"{ws} is not a Django project (no manage.py).")
     if not re.fullmatch(r"[A-Z][A-Za-z0-9]*", model):
         raise SystemExit("Model name must be CamelCase, for example Product or OrderItem.")
-    values = build_values(model, parse_fields(specs))
+    fields = parse_fields(specs)
+    values = build_values(model, fields)
+    check_fk_targets(ws, fields)
     ensure_core(ws)
+    add_test_helpers(ws)
     app = values["APP"]
     app_dir = ws / app
     settings_p, urls_p = ws / "config" / "settings.py", ws / "config" / "urls.py"
@@ -354,12 +438,15 @@ def ensure_core(ws):
 def refresh(ws, model, specs):
     """Re-render the look (templates and app config) of an existing generated module."""
     ws = Path(ws).resolve()
-    values = build_values(model, parse_fields(specs))
+    fields = parse_fields(specs)
+    values = build_values(model, fields)
+    check_fk_targets(ws, fields)
     app = values["APP"]
     app_dir = ws / app
     if not app_dir.exists():
         raise SystemExit(f"{app}/ does not exist. Use 'crud' to create it.")
     ensure_core(ws)
+    add_test_helpers(ws)
     files = {
         "apps.py": APPS,
         f"templates/{app}/base.html": BASE,

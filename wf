@@ -8,6 +8,7 @@ case "$1" in
   status) git status --short; git log --oneline | head -5 ;;
   serve)  cd workspace_crm && python manage.py runserver ;;
   models) ollama list; ollama ps ;;
+  design) shift; python -u -m workforce.design "$@" ;;
   make)   shift; python -m workforce.generator "$@" ;;
   *) echo "usage: ./wf run [N] | task \"text\" MODEL FOLDER | test | reset [folder] | status | serve | models | make crud Model field:type ..." ;;
 esac
