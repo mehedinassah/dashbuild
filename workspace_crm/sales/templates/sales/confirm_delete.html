@@ -1,0 +1,11 @@
+{% extends "sales/base.html" %}
+{% block content %}
+<h1>Delete Sale</h1>
+<form method="post" class="panel">
+  {% csrf_token %}
+  <p>Delete "{{ object }}"? This cannot be undone.</p>
+  {% if protected %}<p class="errorlist">Cannot delete: other records still use this one.</p>{% endif %}
+  <button type="submit" class="btn danger">Yes, delete</button>
+  <a class="btn secondary" href="{% url "sales:list" %}">Cancel</a>
+</form>
+{% endblock %}

@@ -1,0 +1,24 @@
+{
+  "description": "A small point-of-sale system. Customers and products already exist. Add sales, each with a unique number, a date, the customer and a total. Add sale items, each with a description, the sale, the product, a quantity and a unit price.",
+  "modules": [
+    {
+      "model": "Sale",
+      "fields": [
+        "number:str:unique",
+        "date:date",
+        "customer:fk:Customer",
+        "total:decimal"
+      ]
+    },
+    {
+      "model": "SaleItem",
+      "fields": [
+        "description:str",
+        "sale:fk:Sale",
+        "product:fk:Product",
+        "quantity:int",
+        "unit_price:decimal"
+      ]
+    }
+  ]
+}

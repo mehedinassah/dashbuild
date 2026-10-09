@@ -1,0 +1,19 @@
+{% extends "saleitems/base.html" %}
+{% block content %}
+<h1>Saleitems</h1>
+<form method="get" class="toolbar">
+  <input type="text" name="q" value="{{ q }}" placeholder="Search">
+  <button type="submit" class="btn secondary">Search</button>
+  <a class="btn" href="{% url "saleitems:create" %}">+ Add new</a>
+</form>
+<table>
+  <thead><tr><th>Description</th><th>Sale</th><th>Product</th><th>Quantity</th><th>Unit Price</th><th></th></tr></thead>
+  <tbody>
+  {% for item in items %}
+    <tr><td>{{ item.description }}</td><td>{{ item.sale }}</td><td>{{ item.product }}</td><td>{{ item.quantity }}</td><td>{{ item.unit_price }}</td><td class="actions"><a href="{% url "saleitems:update" item.pk %}">Edit</a> <a class="danger-link" href="{% url "saleitems:delete" item.pk %}">Delete</a></td></tr>
+  {% empty %}
+    <tr><td colspan="6">Nothing here yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,10 @@
+{% extends "sales/base.html" %}
+{% block content %}
+<h1>{% if object %}Edit{% else %}New{% endif %} Sale</h1>
+<form method="post" class="panel">
+  {% csrf_token %}
+  {{ form.as_p }}
+  <button type="submit" class="btn">Save</button>
+  <a class="btn secondary" href="{% url "sales:list" %}">Cancel</a>
+</form>
+{% endblock %}
