@@ -12,3 +12,4 @@ plan.json
 autopilot_state.json
 scorecard.json
 .autopilot/
+.autopilot-install-backup-*/
