@@ -12,4 +12,7 @@ Rules for the test file:
   Never compute the expected value with the code under test.
 - Every test must check an exact value with assertEqual / assertTrue / assertFalse / assertRaises.
 - Cover a normal case, an edge case (zero, empty, none), and a case that would catch a wrong operator.
+- The feature is a METHOD: call it with parentheses, for example item.line_total() (never item.line_total).
+- Create EVERY required related row. A SaleItem needs a sale AND a product. Never create a row with a
+  missing required field: that crashes the test before it checks anything.
 - Do NOT write the feature itself. The tests must fail now because it does not exist yet.

@@ -94,6 +94,14 @@ def check_tests(code, card):
             return f"{m.name} does not check anything. Add an assertEqual with an exact expected value"
     if card["name"] not in code:
         return f"the tests never mention '{card['name']}'"
+    if card["kind"] == "model":
+        parents = {id(c): p for p in ast.walk(tree) for c in ast.iter_child_nodes(p)}
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Attribute) and n.attr == card["name"]:
+                par = parents.get(id(n))
+                if not (isinstance(par, ast.Call) and par.func is n):
+                    return (f"'{card['name']}' is a METHOD: call it with parentheses, "
+                            f"for example item.{card['name']}()")
     und = undefined_names(code)
     if und:
         return und[0] + " (add the missing import)"
@@ -106,18 +114,55 @@ def count_tests(code):
                for m in c.body if isinstance(m, ast.FunctionDef) and m.name.startswith("test_"))
 
 
+def failing_tests(output):
+    """-> [(test_name, final_error_line)] parsed from Django/unittest output."""
+    out = []
+    for m in re.finditer(r"^(?:ERROR|FAIL): (\w+) \(.*?(?=^={10,}|\Z)", output, re.M | re.S):
+        block = m.group(0)
+        errs = [l.strip() for l in block.splitlines() if re.match(r"^[\w.]*(Error|Exception)\b", l.strip())
+                or l.strip().startswith("AssertionError")]
+        out.append((m.group(1), (errs[-1] if errs else "failed")[:220]))
+    return out
+
+
+def summarize(output, limit=1500):
+    """A short, readable failure summary for the small model."""
+    fails = failing_tests(output)
+    if not fails:
+        return output[-limit:]
+    lines = [f"{len(fails)} test(s) failed:"] + [f"- {n}: {e}" for n, e in fails]
+    for l in output.splitlines():
+        if l.strip().startswith("File") and "site-packages" not in l and "/usr/" not in l \
+                and ("models.py" in l or "services.py" in l or "test_" in l):
+            lines.append(l.strip()[:160])
+    return "\n".join(lines)[:limit]
+
+
+def _missing(text, name):
+    """The error is just 'the thing being built does not exist yet'."""
+    return bool(re.search(rf"(AttributeError|ImportError|ModuleNotFoundError)[^\n]*"
+                          rf"({re.escape(name)}|\.services)", text))
+
+
 def classify_red(output, ok, name):
-    """Are the tests failing because the feature is missing (good) or for another reason?"""
+    """Every test must fail because the feature is missing, never for another reason."""
     if ok:
         return False, ("these tests already pass, so they do not test anything new. "
                        f"Test the behaviour of '{name}', which does not exist yet.")
     if "SyntaxError" in output or "NameError" in output:
         return False, "the tests have an error: " + _last_error(output)
-    if re.search(rf"(AttributeError|ImportError)[^\n]*{re.escape(name)}", output) \
-            or "AssertionError" in output:
-        return True, ""
-    return False, ("the tests fail for a different reason than the missing feature: "
-                   + _last_error(output) + ". Check field names with show_models.")
+    fails = failing_tests(output)
+    if not fails:
+        if _missing(output, name):
+            return True, ""
+        return False, "the tests could not run: " + _last_error(output)
+    for tname, err in fails:
+        if err.startswith("AssertionError") or _missing(err, name):
+            continue
+        return False, (f"{tname} fails for the wrong reason: {err}. A test must fail only because "
+                       f"'{name}' is missing. Create every required related row (a SaleItem needs "
+                       "both a sale and a product) and never create rows with missing required fields.")
+    return True, ""
 
 
 def _last_error(output):
@@ -249,7 +294,7 @@ def phase_impl(ws, card, model, feedback):
         """Run all project tests and show the result."""
         r = run_suite(ws)
         state["tests_passed"] = r["ok"]
-        return ("OK, all tests pass. Reply DONE.\n" if r["ok"] else "") + r["output"][-2500:]
+        return "OK, all tests pass. Reply DONE." if r["ok"] else summarize(r["output"])
 
     tools = [show_models, set_method if cls else set_function, add_import, run_tests]
     tests_src = test_file(ws, card).read_text()
@@ -298,7 +343,7 @@ def gates(ws, card, locked_hash, n_new, baseline_ran, state):
         return False, "undefined names: " + "; ".join(state["undefined"].values()), None
     r = run_suite(ws)
     if not r["ok"]:
-        return False, "the full test suite fails:\n" + r["output"][-800:], None
+        return False, "the full test suite fails:\n" + summarize(r["output"], 800), None
     if r["ran"] != baseline_ran + n_new:
         return False, (f"expected {baseline_ran + n_new} tests to run but {r['ran']} ran"), None
     rate, survived, total = mutation_score(ws, card)

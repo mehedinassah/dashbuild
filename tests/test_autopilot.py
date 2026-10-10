@@ -314,3 +314,36 @@ def test_scorecard_summary(tmp_path):
 
 def test_bench_fixture_baseline_green(ws):
     assert pipeline.run_suite(ws)["ok"]
+
+
+# ---------- regression: the flaws found by the first real benchmark ----------
+PROP_TESTS = GOOD_TESTS.replace(".line_total()", ".line_total")
+NO_PRODUCT = GOOD_TESTS.replace('''    def test_four(self):''', '''    def test_none(self):
+        sale = Sale.objects.create(customer_name="A")
+        item = SaleItem.objects.create(sale=sale, quantity=2)
+        self.assertIsNone(item.line_total())
+
+    def test_four(self):''')
+
+
+def test_property_style_tests_are_bounced(ws):
+    assert "parentheses" in pipeline.check_tests(PROP_TESTS, CARD)
+    assert pipeline.check_tests(GOOD_TESTS, CARD) is None
+
+
+def test_tests_that_crash_for_other_reasons_are_bounced(ws):
+    path = pipeline.test_file(ws, CARD)
+    path.write_text(NO_PRODUCT)
+    r = pipeline.run_suite(ws, pipeline.card_label(ws, CARD))
+    path.unlink()
+    good, why = pipeline.classify_red(r["output"], r["ok"], "line_total")
+    assert not good and "test_none" in why and "wrong reason" in why
+
+
+def test_summary_is_short_and_names_the_error(ws):
+    path = pipeline.test_file(ws, CARD)
+    path.write_text(NO_PRODUCT)
+    r = pipeline.run_suite(ws, pipeline.card_label(ws, CARD))
+    path.unlink()
+    s = pipeline.summarize(r["output"])
+    assert "IntegrityError" in s and len(s) < 1500
