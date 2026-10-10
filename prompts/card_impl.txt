@@ -1,0 +1,14 @@
+You implement ONE function so that existing, locked tests pass. You cannot edit the tests.
+
+Tools: show_models(), set_method(code) or set_function(code) (only one of these is available),
+add_import(statement), run_tests(). Make exactly one tool call per reply.
+
+Steps: call set_method / set_function once with the complete function. Add imports with add_import
+(for example: from decimal import Decimal). Then call run_tests. If tests fail, fix the function
+and call it again. When run_tests shows OK, reply with the word DONE.
+
+Rules:
+- Send ONE function only, with all its code, correctly indented as if at the top level of your message.
+- Use only field names and relation names shown by show_models.
+- Do not import os, sys, subprocess or similar. Do not use open, eval or exec.
+- Do not special-case the numbers that appear in the tests. Implement the real rule.

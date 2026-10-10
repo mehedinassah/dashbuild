@@ -9,3 +9,6 @@ __pycache__/
 state.json
 db.sqlite3
 plan.json
+autopilot_state.json
+scorecard.json
+.autopilot/

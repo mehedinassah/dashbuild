@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Autopilot launcher: ./wfa auto "describe the business" | score | map | bench MODEL...
+cd "$(dirname "$0")"
+[ -f .venv/bin/activate ] && source .venv/bin/activate
+exec python -m workforce.auto "$@"

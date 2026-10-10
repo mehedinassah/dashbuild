@@ -19,7 +19,8 @@ def first_json_call(text):
 
 
 def run_worker(*, model, system, task, tools, state,
-               max_steps=CFG["max_steps"], require_tests=True, num_ctx=CFG["num_ctx"]):
+               max_steps=CFG["max_steps"], require_tests=True, num_ctx=CFG["num_ctx"],
+               finish_check=None):
     table = {f.__name__: f for f in tools}
     messages = [{"role": "system", "content": system},
                 {"role": "user", "content": task}]
@@ -60,6 +61,8 @@ def run_worker(*, model, system, task, tools, state,
             if state.get("undefined"):
                 problems.append("fix these undefined names first: " + "; ".join(
                     f"{k}: {v}" for k, v in state["undefined"].items()))
+            if finish_check:
+                problems += list(finish_check())
             if not problems:
                 print("DONE:", (msg.content or "")[:300])
                 return {"status": "done", "summary": msg.content, "steps": step,

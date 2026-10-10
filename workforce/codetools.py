@@ -1,0 +1,126 @@
+"""Structure-aware code edits. The model hands over ONE function; Python decides
+where it goes, so the model never deals with paths or exact-text matching."""
+import ast
+import textwrap
+
+BANNED_IMPORTS = {"os", "sys", "subprocess", "shutil", "socket", "ctypes", "requests",
+                  "urllib", "http", "pickle", "importlib", "pathlib", "builtins"}
+BANNED_CALLS = {"eval", "exec", "open", "__import__", "compile", "input", "globals", "setattr"}
+
+
+def safety_problem(code):
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as e:
+        return f"this is not valid Python (line {e.lineno}: {e.msg})"
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            for a in n.names:
+                if a.name.split(".")[0] in BANNED_IMPORTS:
+                    return f"importing '{a.name}' is not allowed"
+        elif isinstance(n, ast.ImportFrom):
+            if (n.module or "").split(".")[0] in BANNED_IMPORTS:
+                return f"importing from '{n.module}' is not allowed"
+        elif isinstance(n, ast.Call) and isinstance(n.func, ast.Name) \
+                and n.func.id in BANNED_CALLS:
+            return f"calling '{n.func.id}' is not allowed"
+    return None
+
+
+def one_def(code):
+    """Parse code that must be exactly one function. Returns (node, error)."""
+    code = textwrap.dedent(code).strip("\n")
+    problem = safety_problem(code)
+    if problem:
+        return None, problem
+    tree = ast.parse(code)
+    if len(tree.body) != 1 or not isinstance(tree.body[0], (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return None, "send exactly ONE function (def ...) and nothing else"
+    return tree.body[0], None
+
+
+def _span(node):
+    start = min([node.lineno] + [d.lineno for d in node.decorator_list])
+    return start - 1, node.end_lineno
+
+
+def find_def(tree, name, class_name=None):
+    body = tree.body
+    if class_name:
+        cls = next((n for n in body if isinstance(n, ast.ClassDef) and n.name == class_name), None)
+        if cls is None:
+            return None
+        body = cls.body
+    return next((n for n in body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                 and n.name == name), None)
+
+
+def upsert_def(src, code, class_name=None):
+    """Insert or replace one function (or method). Returns (new_src, error)."""
+    fn, err = one_def(code)
+    if err:
+        return None, err
+    code = textwrap.dedent(code).strip("\n")
+    try:
+        tree = ast.parse(src)
+    except SyntaxError as e:
+        return None, f"the target file is currently not valid Python: {e.msg}"
+    lines = src.splitlines()
+    indent = ""
+    if class_name:
+        cls = next((n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == class_name), None)
+        if cls is None:
+            return None, f"class {class_name} does not exist"
+        if not fn.args.args or fn.args.args[0].arg not in ("self", "cls"):
+            return None, "a method must take 'self' as its first argument"
+        for st in cls.body:
+            names = []
+            if isinstance(st, ast.Assign):
+                names = [t.id for t in st.targets if isinstance(t, ast.Name)]
+            elif isinstance(st, ast.AnnAssign) and isinstance(st.target, ast.Name):
+                names = [st.target.id]
+            if fn.name in names:
+                return None, f"'{fn.name}' is already a field of {class_name}; choose another name"
+        indent = "    "
+        existing = find_def(tree, fn.name, class_name)
+        anchor_end = cls.end_lineno
+    else:
+        existing = find_def(tree, fn.name)
+        anchor_end = len(lines)
+    block = textwrap.indent(code, indent).splitlines()
+    if existing:
+        s, e = _span(existing)
+        lines[s:e] = block
+    else:
+        lead = [""] if class_name else ["", ""]
+        lines[anchor_end:anchor_end] = lead + block
+    new = "\n".join(lines).rstrip("\n") + "\n"
+    try:
+        ast.parse(new)
+    except SyntaxError as e:
+        return None, f"the result would not be valid Python ({e.msg})"
+    return new, None
+
+
+def add_import(src, statement):
+    """Add one import line if it is not there yet. Returns (new_src, error)."""
+    statement = textwrap.dedent(statement).strip()
+    problem = safety_problem(statement)
+    if problem:
+        return None, problem
+    tree = ast.parse(statement)
+    if len(tree.body) != 1 or not isinstance(tree.body[0], (ast.Import, ast.ImportFrom)):
+        return None, "send exactly one import statement"
+    want = ast.dump(tree.body[0])
+    mod = ast.parse(src)
+    last = 0
+    for i, n in enumerate(mod.body):
+        if isinstance(n, (ast.Import, ast.ImportFrom)):
+            if ast.dump(n) == want:
+                return src, None
+            last = n.end_lineno
+        elif i == 0 and isinstance(n, ast.Expr) and isinstance(getattr(n, "value", None), ast.Constant):
+            last = n.end_lineno
+    lines = src.splitlines()
+    lines[last:last] = [statement]
+    return "\n".join(lines).rstrip("\n") + "\n", None
