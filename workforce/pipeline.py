@@ -94,6 +94,9 @@ def check_tests(code, card):
             return f"{m.name} does not check anything. Add an assertEqual with an exact expected value"
     if card["name"] not in code:
         return f"the tests never mention '{card['name']}'"
+    if "assertRaises" in code and not re.search(r"rais|error|exception|fail|invalid", card["spec"], re.I):
+        return ("the rule does not mention any error, so do not use assertRaises. Test only what the "
+                "rule says. Do not invent errors, messages or extra behaviour.")
     if card["kind"] == "model":
         parents = {id(c): p for p in ast.walk(tree) for c in ast.iter_child_nodes(p)}
         for n in ast.walk(tree):
@@ -294,6 +297,7 @@ def phase_impl(ws, card, model, feedback):
         """Run all project tests and show the result."""
         r = run_suite(ws)
         state["tests_passed"] = r["ok"]
+        state["last_fail"] = "" if r["ok"] else summarize(r["output"], 500)
         return "OK, all tests pass. Reply DONE." if r["ok"] else summarize(r["output"])
 
     tools = [show_models, set_method if cls else set_function, add_import, run_tests]
@@ -387,7 +391,9 @@ def run_card(ws, card, model=None, attempts=None, log=print):
         log(f"[{result['id']}] tests locked ({n_new}); writing code")
         res, state = phase_impl(ws, card, model, feedback)
         if res["status"] != "done":
-            feedback = "the implementation did not get the tests passing in time"
+            feedback = ("the code could not satisfy the tests. " + (state.get("last_fail") or "")
+                        + " If a test asserts something the rule does not state, do not write that "
+                        "test; test only what the rule says.")
             continue
         ok, why, rate = gates(ws, card, locked, n_new, base["ran"], state)
         result["kill_rate"] = rate

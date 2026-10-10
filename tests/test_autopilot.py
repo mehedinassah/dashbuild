@@ -347,3 +347,23 @@ def test_summary_is_short_and_names_the_error(ws):
     path.unlink()
     s = pipeline.summarize(r["output"])
     assert "IntegrityError" in s and len(s) < 1500
+
+
+def test_invented_error_tests_are_bounced(ws):
+    invented = GOOD_TESTS + '''
+    def test_error(self):
+        with self.assertRaises(ValueError):
+            self.make("5.00", 1).line_total()
+'''
+    assert "assertRaises" in pipeline.check_tests(invented, CARD)
+    svc = dict(BENCH_CARDS[3])  # its rule does say 'raises ValueError'
+    assert pipeline.check_tests(
+        "from django.test import TestCase\nfrom sales.services import reduce_stock\n\n"
+        "class T(TestCase):\n    def test_a(self):\n        with self.assertRaises(ValueError):\n"
+        "            reduce_stock(None, 1)\n", svc) is None
+
+
+def test_impl_failure_feedback_names_the_failing_test(ws, monkeypatch):
+    use(monkeypatch, Fake([GOOD_TESTS], [WRONG_IMPL] * 30))
+    r = pipeline.run_card(ws, CARD, "fake", attempts=1, log=quiet)
+    assert r["status"] == "failed" and "test_basic" in r["reason"]
