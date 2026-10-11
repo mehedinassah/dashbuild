@@ -1,7 +1,14 @@
 import json
-from ollama import chat
+from ollama import chat as _ollama_chat
 
 from .config import CFG
+
+
+def chat(**kw):
+    """Ollama chat. Put "think": false in config.json for thinking models such as qwen3."""
+    if "think" in CFG:
+        kw["think"] = CFG["think"]
+    return _ollama_chat(**kw)
 
 
 def first_json_call(text):

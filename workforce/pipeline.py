@@ -382,7 +382,7 @@ def gates(ws, card, locked_hash, n_new, baseline_ran, state):
 def run_card(ws, card, model=None, attempts=None, log=print):
     """Build one card. On success the new files are left in place (not committed)."""
     model = model or CFG["model"]
-    attempts = attempts or CFG["max_attempts"]
+    attempts = attempts or CFG.get("card_attempts", 5)
     ws = Path(ws)
     tf, target = test_file(ws, card), target_file(ws, card)
     t0 = time.time()

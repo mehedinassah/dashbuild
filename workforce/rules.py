@@ -72,7 +72,8 @@ def propose_cards(description, ws, model=None, tries=3, log=print):
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     best, problems = [], []
     for t in range(tries):
-        resp = chat(model=model, messages=messages, format="json",
+        extra = {"think": CFG["think"]} if "think" in CFG else {}
+        resp = chat(model=model, messages=messages, format="json", **extra,
                     options={"num_ctx": CFG["num_ctx"], "temperature": CFG["temperature"],
                              "num_predict": CFG["num_predict"]})
         text = resp.message.content or ""

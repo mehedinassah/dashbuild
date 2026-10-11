@@ -384,3 +384,25 @@ def test_service_card_tests_must_call_a_function(ws):
 def test_kind_note_differs_by_kind():
     assert "METHOD" in pipeline.kind_note(BENCH_CARDS[0])
     assert "FUNCTION" in pipeline.kind_note(BENCH_CARDS[3])
+
+
+def test_think_option_is_passed_through(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(worker, "_ollama_chat", lambda **kw: seen.update(kw) or "ok")
+    monkeypatch.setitem(worker.CFG, "think", False)
+    assert worker.chat(model="m", messages=[]) == "ok" and seen["think"] is False
+    monkeypatch.delitem(worker.CFG, "think")
+    seen.clear()
+    worker.chat(model="m", messages=[])
+    assert "think" not in seen
+
+
+def test_rules_pass_think(ws, monkeypatch):
+    got = {}
+    def fake(**kw):
+        got.update(kw)
+        return NS(message=NS(content=json.dumps({"cards": [CARD]})))
+    monkeypatch.setattr(rules_mod, "chat", fake)
+    monkeypatch.setitem(rules_mod.CFG, "think", False)
+    rules_mod.propose_cards("shop", ws, "fake")
+    assert got["think"] is False
