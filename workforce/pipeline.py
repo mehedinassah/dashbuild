@@ -97,6 +97,16 @@ def check_tests(code, card):
     if "assertRaises" in code and not re.search(r"rais|error|exception|fail|invalid", card["spec"], re.I):
         return ("the rule does not mention any error, so do not use assertRaises. Test only what the "
                 "rule says. Do not invent errors, messages or extra behaviour.")
+    if card["kind"] == "service":
+        imported = any(isinstance(n, ast.ImportFrom) and (n.module or "").endswith("services")
+                       and any(a.name == card["name"] for a in n.names) for n in ast.walk(tree))
+        if not imported:
+            return (f"import the function first: from {card['app']}.services import {card['name']} "
+                    "(it is a plain function, not a method)")
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Attribute) and n.attr == card["name"] and not (
+                    isinstance(n.value, ast.Name) and n.value.id == "services"):
+                return f"'{card['name']}' is a plain function, call it as {card['name']}(...), not obj.{card['name']}(...)"
     if card["kind"] == "model":
         parents = {id(c): p for p in ast.walk(tree) for c in ast.iter_child_nodes(p)}
         for n in ast.walk(tree):
@@ -177,8 +187,19 @@ def _sha(p):
     return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 
 
-def _prompt(name):
-    return (PROMPTS / name).read_text()
+def kind_note(card):
+    n = card["name"]
+    if card["kind"] == "model":
+        return (f"\nThe feature is a METHOD of {card['class']}. Tests call it with parentheses, for "
+                f"example obj.{n}(). Never write obj.{n} without parentheses. In your code write a "
+                "normal def with self (no @property).\n")
+    return (f"\nThe feature is a plain FUNCTION in {card['app']}/services.py, NOT a method of any model. "
+            f"Tests import it with: from {card['app']}.services import {n}   and call it as a function, "
+            f"for example {n}(product, 3). Never call it as product.{n}(...).\n")
+
+
+def _prompt(name, card=None):
+    return (PROMPTS / name).read_text() + (kind_note(card) if card else "")
 
 
 # ---------- the two phases ----------
@@ -214,7 +235,7 @@ def phase_tests(ws, card, model, feedback):
             f"Rule: {card['spec']}\n\nProject:\n{project_map(ws)}\n")
     if feedback:
         task += f"\nLast attempt failed because: {feedback}\n"
-    res = run_worker(model=model, system=_prompt("card_tests.txt"), task=task,
+    res = run_worker(model=model, system=_prompt("card_tests.txt", card), task=task,
                      tools=[show_models, write_tests], state=state, max_steps=8,
                      require_tests=False,
                      finish_check=lambda: [] if state.get("wrote") else
@@ -306,7 +327,7 @@ def phase_impl(ws, card, model, feedback):
             f"Project:\n{project_map(ws)}\n\nLocked tests that must pass:\n{tests_src}\n")
     if feedback:
         task += f"\nLast attempt failed because: {feedback}\n"
-    res = run_worker(model=model, system=_prompt("card_impl.txt"), task=task, tools=tools,
+    res = run_worker(model=model, system=_prompt("card_impl.txt", card), task=task, tools=tools,
                      state=state, max_steps=CFG["max_steps"], require_tests=True)
     return res, state
 
@@ -354,7 +375,7 @@ def gates(ws, card, locked_hash, n_new, baseline_ran, state):
     if rate < CFG.get("min_kill_rate", 0.7):
         return False, (f"the tests are too weak: {len(survived)} of {total} deliberate bugs went "
                        f"unnoticed ({'; '.join(survived[:3])}). Write tests that check exact values "
-                       "and edge cases."), rate
+                       "and boundaries (for a rule like stock > 0 test stock 0 AND stock 1)."), rate
     return True, "", rate
 
 

@@ -367,3 +367,20 @@ def test_impl_failure_feedback_names_the_failing_test(ws, monkeypatch):
     use(monkeypatch, Fake([GOOD_TESTS], [WRONG_IMPL] * 30))
     r = pipeline.run_card(ws, CARD, "fake", attempts=1, log=quiet)
     assert r["status"] == "failed" and "test_basic" in r["reason"]
+
+
+def test_service_card_tests_must_call_a_function(ws):
+    card = BENCH_CARDS[3]
+    as_method = ("from django.test import TestCase\nfrom sales.models import Product\n\n"
+                 "class T(TestCase):\n    def test_a(self):\n"
+                 "        p = Product.objects.create(name='a', price='1', stock=3)\n"
+                 "        p.reduce_stock(1)\n        self.assertEqual(p.stock, 2)\n")
+    assert "import the function" in pipeline.check_tests(as_method, card)
+    wrong_call = as_method.replace("from sales.models import Product",
+                                   "from sales.models import Product\nfrom sales.services import reduce_stock")
+    assert "plain function" in pipeline.check_tests(wrong_call, card)
+
+
+def test_kind_note_differs_by_kind():
+    assert "METHOD" in pipeline.kind_note(BENCH_CARDS[0])
+    assert "FUNCTION" in pipeline.kind_note(BENCH_CARDS[3])

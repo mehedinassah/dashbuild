@@ -8,7 +8,6 @@ Steps: call set_method / set_function once with the complete function. Add impor
 and call it again. When run_tests shows OK, reply with the word DONE.
 
 Rules:
-- The tests call it as a METHOD, so write a normal def with self (no @property).
 - Send ONE function only, with all its code, correctly indented as if at the top level of your message.
 - Use only field names and relation names shown by show_models.
 - Do not import os, sys, subprocess or similar. Do not use open, eval or exec.
