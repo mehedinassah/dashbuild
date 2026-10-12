@@ -13,3 +13,6 @@ class SaleItem(models.Model):
 
     def __str__(self):
         return str(self.description)
+
+    def line_total(self):
+            return self.unit_price * self.quantity
