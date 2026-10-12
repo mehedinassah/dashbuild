@@ -421,3 +421,51 @@ def test_summary_shows_the_failing_test_line(ws):
     r = pipeline.run_suite(ws, pipeline.card_label(ws, CARD))
     path.unlink()
     assert "failed on this line of the test" in pipeline.summarize(r["output"])
+
+
+def test_normalize_indent_fixes_deep_bodies():
+    deep = "def f(self):\n            x = 1\n            if x:\n                return 2\n            return 3\n"
+    out = codetools.normalize_indent(deep)
+    assert out.splitlines()[1] == "    x = 1" and out.splitlines()[3] == "        return 2"
+    new, err = codetools.upsert_def("class A:\n    pass\n", deep, "A")
+    assert not err and "\n        x = 1\n" in new
+
+
+def test_mutation_removes_calls_and_hints_are_specific():
+    src = "class A:\n    def f(self):\n        self.x = 1\n        self.save()\n"
+    descs = [d for d, _ in mutation.mutants(src, "f", "A")]
+    assert any("removed a statement" in d for d in descs)
+    hint = pipeline._survivor_hints(["line 17: changed the number 0"])
+    assert "exactly 0 and exactly 1" in hint
+    assert "refresh_from_db" in pipeline._survivor_hints(["line 3: removed a statement that calls something"])
+
+
+def test_unsaved_change_is_caught(ws, monkeypatch):
+    tests = '''
+from django.test import TestCase
+from sales.models import Product
+from sales.services import reduce_stock
+
+
+class T(TestCase):
+    def test_a(self):
+        p = Product.objects.create(name="a", price="1.00", stock=5)
+        reduce_stock(p, 2)
+        self.assertEqual(p.stock, 3)
+
+    def test_b(self):
+        p = Product.objects.create(name="a", price="1.00", stock=5)
+        reduce_stock(p, 5)
+        self.assertEqual(p.stock, 0)
+
+    def test_c(self):
+        p = Product.objects.create(name="a", price="1.00", stock=1)
+        with self.assertRaises(ValueError):
+            reduce_stock(p, 2)
+        self.assertEqual(p.stock, 1)
+'''
+    impl = ("def reduce_stock(product, quantity):\n    if product.stock < quantity:\n"
+            "        raise ValueError('no')\n    product.stock -= quantity\n    product.save()\n")
+    use(monkeypatch, Fake([tests] * 2, [impl] * 2))
+    r = pipeline.run_card(ws, BENCH_CARDS[3], "fake", attempts=1, log=quiet)
+    assert r["status"] == "failed" and "refresh_from_db" in r["reason"]

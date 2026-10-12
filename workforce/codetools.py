@@ -39,6 +39,38 @@ def one_def(code):
     return tree.body[0], None
 
 
+def normalize_indent(code):
+    """Make the body of a function use exactly 4 spaces, whatever the model sent."""
+    code = textwrap.dedent(code).strip("\n")
+    try:
+        fn = ast.parse(code).body[0]
+    except (SyntaxError, IndexError):
+        return code
+    lines = code.splitlines()
+    first = fn.body[0].lineno - 1
+    body_indent = len(lines[first]) - len(lines[first].lstrip())
+    delta = 4 - body_indent
+    if delta == 0:
+        return code
+    rest = lines[first:]
+    if any(l.strip() and len(l) - len(l.lstrip()) < body_indent for l in rest):
+        return code
+    out = lines[:first]
+    for l in rest:
+        if not l.strip():
+            out.append("")
+        elif delta > 0:
+            out.append(" " * delta + l)
+        else:
+            out.append(l[-delta:])
+    new = "\n".join(out)
+    try:
+        ast.parse(new)
+    except SyntaxError:
+        return code
+    return new
+
+
 def _span(node):
     start = min([node.lineno] + [d.lineno for d in node.decorator_list])
     return start - 1, node.end_lineno
@@ -60,7 +92,7 @@ def upsert_def(src, code, class_name=None):
     fn, err = one_def(code)
     if err:
         return None, err
-    code = textwrap.dedent(code).strip("\n")
+    code = normalize_indent(code)
     try:
         tree = ast.parse(src)
     except SyntaxError as e:

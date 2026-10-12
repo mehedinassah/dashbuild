@@ -362,6 +362,23 @@ def mutation_score(ws, card, limit=8):
     return 1 - len(survived) / len(muts), survived, len(muts)
 
 
+def _survivor_hints(survived):
+    tips = []
+    for d in survived[:3]:
+        m = re.search(r"changed the number (-?\d+)\b", d)
+        if m:
+            n = int(m.group(1))
+            tips.append(f"{d}: add tests whose input is exactly {n} and exactly {n + 1}")
+        elif "removed a statement" in d:
+            tips.append(f"{d}: after calling the code, re-load the object with obj.refresh_from_db() "
+                        "and check the stored value")
+        elif "comparison" in d:
+            tips.append(f"{d}: add tests with a value exactly at the comparison limit and one on each side")
+        else:
+            tips.append(d + ": add a test whose exact expected value depends on this part")
+    return "; ".join(tips)
+
+
 def gates(ws, card, locked_hash, n_new, baseline_ran, state):
     tf, target = test_file(ws, card), target_file(ws, card)
     if not tf.exists() or _sha(tf) != locked_hash:
@@ -378,9 +395,7 @@ def gates(ws, card, locked_hash, n_new, baseline_ran, state):
         return False, (f"expected {baseline_ran + n_new} tests to run but {r['ran']} ran"), None
     rate, survived, total = mutation_score(ws, card)
     if rate < CFG.get("min_kill_rate", 0.7):
-        return False, (f"the tests are too weak: {len(survived)} of {total} deliberate bugs went "
-                       f"unnoticed ({'; '.join(survived[:3])}). Write tests that check exact values "
-                       "and boundaries (for a rule like stock > 0 test stock 0 AND stock 1)."), rate
+        return False, ("the tests are too weak: " + _survivor_hints(survived)), rate
     return True, "", rate
 
 

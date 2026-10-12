@@ -56,6 +56,13 @@ class _Mutator(ast.NodeTransformer):
             return node.operand
         return node
 
+    def visit_Expr(self, node):
+        self.generic_visit(node)
+        if isinstance(node.value, ast.Call) and self._hit(
+                f"line {node.lineno}: removed a statement that calls something (for example a save)"):
+            return ast.copy_location(ast.Pass(), node)
+        return node
+
     def visit_Return(self, node):
         self.generic_visit(node)
         if node.value is not None and not (isinstance(node.value, ast.Constant) and node.value.value is None):

@@ -17,4 +17,6 @@ Rules for the test file:
 - Test ONLY what the rule says. Never invent errors, exceptions, messages or extra behaviour.
 - Create EVERY required related row. A SaleItem needs a sale AND a product. Never create a row with a
   missing required field: that crashes the test before it checks anything.
+- When the rule says something is saved, call obj.refresh_from_db() before checking the value, so the
+  test reads what is really stored in the database.
 - Do NOT write the feature itself. The tests must fail now because it does not exist yet.
