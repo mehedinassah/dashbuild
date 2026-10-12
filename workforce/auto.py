@@ -77,11 +77,21 @@ def run_cards(ws, cards, model, yes=False, ask=input, state=None, log=print, roo
             continue
         show_change(ws, res["files"])
         log(f"PASSED {cid} (bug-detection score {res['kill_rate']:.0%}, {res['attempts']} attempt(s))")
-        if yes or ask("Keep and commit this? [y/N] ").strip().lower() == "y":
+        approve = True if yes else None
+        while approve is None:
+            a = ask("Keep and commit this? Type y or n, then Enter: ").strip().lower()
+            if a in ("y", "yes"):
+                approve = True
+            elif a in ("n", "no"):
+                approve = False
+            else:
+                log("Please type just y or n.")
+        if approve:
             git(ws, "add", *res["files"])
             git(ws, "-c", "user.name=workforce", "-c", "user.email=workforce@local",
                 "commit", "-qm", f"auto: {cid}\n\n{c['spec']}")
             state["done"].append(cid)
+            state["failed"].pop(cid, None)
         else:
             revert(ws, res["files"])
             state["declined"].append(cid)

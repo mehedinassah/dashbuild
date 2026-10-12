@@ -406,3 +406,18 @@ def test_rules_pass_think(ws, monkeypatch):
     monkeypatch.setitem(rules_mod.CFG, "think", False)
     rules_mod.propose_cards("shop", ws, "fake")
     assert got["think"] is False
+
+
+def test_prompt_reasks_until_y_or_n(ws, monkeypatch):
+    use(monkeypatch, Fake([GOOD_TESTS], [GOOD_IMPL]))
+    answers = iter(["def line_total(self):", "", "maybe", "y"])
+    st = auto.run_cards(ws, [CARD], "fake", ask=lambda p: next(answers), log=quiet)
+    assert st["done"] == ["sales_saleitem_line_total"]
+
+
+def test_summary_shows_the_failing_test_line(ws):
+    path = pipeline.test_file(ws, CARD)
+    path.write_text(GOOD_TESTS)
+    r = pipeline.run_suite(ws, pipeline.card_label(ws, CARD))
+    path.unlink()
+    assert "failed on this line of the test" in pipeline.summarize(r["output"])

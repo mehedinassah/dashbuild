@@ -139,14 +139,19 @@ def failing_tests(output):
 
 
 def summarize(output, limit=1500):
-    """A short, readable failure summary for the small model."""
+    """A short, readable failure summary for the small model, including the failing test line."""
     fails = failing_tests(output)
     if not fails:
         return output[-limit:]
     lines = [f"{len(fails)} test(s) failed:"] + [f"- {n}: {e}" for n, e in fails]
+    seen = set()
+    for m in re.finditer(r'File "[^"]*?(test_\w+\.py)", line (\d+), in (\w+)\n\s+(.+)', output):
+        if m.group(3) not in seen:
+            seen.add(m.group(3))
+            lines.append(f"  {m.group(3)} failed on this line of the test: {m.group(4).strip()[:150]}")
     for l in output.splitlines():
         if l.strip().startswith("File") and "site-packages" not in l and "/usr/" not in l \
-                and ("models.py" in l or "services.py" in l or "test_" in l):
+                and ("models.py" in l or "services.py" in l):
             lines.append(l.strip()[:160])
     return "\n".join(lines)[:limit]
 
