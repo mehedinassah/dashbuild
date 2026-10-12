@@ -1,4 +1,5 @@
 from django.db import models
+import decimal
 
 
 class Sale(models.Model):
@@ -12,3 +13,10 @@ class Sale(models.Model):
 
     def __str__(self):
         return str(self.number)
+
+    def calculate_total(self):
+        total = decimal.Decimal("0.00")
+        for item in self.saleitem_set.all():
+            total += item.line_total()
+        self.total = total
+        return total
