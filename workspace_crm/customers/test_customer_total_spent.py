@@ -18,3 +18,11 @@ class TestCustomerTotalSpent(TestCase):
         sale1 = Sale.objects.create(number="S002", date="2023-01-01", customer=customer, total=Decimal("50.00"))
         sale2 = Sale.objects.create(number="S003", date="2023-01-02", customer=customer, total=Decimal("75.00"))
         self.assertEqual(customer.total_spent(), Decimal("125.00"))
+
+    def test_other_customers_sales_are_not_counted(self):
+        customer = Customer.objects.create(name="Bob Lee", email="bob@example.com", phone="111111111")
+        other = Customer.objects.create(name="Carl Roe", email="carl@example.com", phone="222222222")
+        Sale.objects.create(number="S010", date="2023-02-01", customer=customer, total=Decimal("40.00"))
+        Sale.objects.create(number="S011", date="2023-02-02", customer=other, total=Decimal("900.00"))
+        self.assertEqual(customer.total_spent(), Decimal("40.00"))
+        self.assertEqual(other.total_spent(), Decimal("900.00"))
