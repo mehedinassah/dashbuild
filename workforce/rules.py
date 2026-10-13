@@ -7,6 +7,7 @@ from pathlib import Path
 from ollama import chat
 
 from .config import CFG
+from . import fields
 from .notes import project_map, scan
 from .pipeline import PROMPTS, card_id
 
@@ -25,9 +26,10 @@ def validate_cards(ws, cards):
         if not isinstance(c, dict):
             problems.append(f"{tag}: must be an object")
             continue
-        c = {k: (str(c.get(k) or "")).strip() for k in ("app", "kind", "class", "name", "spec")}
-        if c["kind"] not in ("model", "service"):
-            problems.append(f"{tag}: kind must be 'model' or 'service'")
+        c = {k: (str(c.get(k) or "")).strip() for k in
+             ("app", "kind", "class", "name", "spec", "mode", "tag", "definition")}
+        if c["kind"] not in ("model", "service", "field"):
+            problems.append(f"{tag}: kind must be 'model', 'service' or 'field'")
             continue
         if c["app"] not in apps:
             problems.append(f"{tag}: app '{c['app']}' does not exist (apps: {', '.join(apps)})")
@@ -35,10 +37,41 @@ def validate_cards(ws, cards):
         if not re.fullmatch(r"[a-z_][a-z0-9_]*", c["name"]):
             problems.append(f"{tag}: name '{c['name']}' must be snake_case")
             continue
-        if not 25 <= len(c["spec"]) <= 500:
+        if not (10 if c["kind"] == "field" else 25) <= len(c["spec"]) <= 500:
             problems.append(f"{tag}: spec must be 25-500 characters")
             continue
-        if c["kind"] == "model":
+        if c["kind"] == "field":
+            info = apps[c["app"]].get(c["class"])
+            if info is None:
+                problems.append(f"{tag}: class '{c['class']}' not found in {c['app']}")
+                continue
+            if c["name"] in {f[0] for f in info["fields"]} or c["name"] in info["methods"]:
+                problems.append(f"{tag}: '{c['name']}' already exists on {c['class']}")
+                continue
+            bad = fields.check_definition(c["definition"])
+            if bad:
+                problems.append(f"{tag}: {bad}")
+                continue
+            c["mode"] = c["tag"] = ""
+        elif c["mode"] == "change":
+            if not re.fullmatch(r"[a-z][a-z0-9_]{1,30}", c["tag"]):
+                problems.append(f"{tag}: a change card needs a short snake_case 'tag', for example 'no_double_confirm'")
+                continue
+            if c["kind"] == "model":
+                info = apps[c["app"]].get(c["class"])
+                if info is None or c["name"] not in info["methods"]:
+                    problems.append(f"{tag}: '{c['name']}' does not exist on {c['class']}, so it cannot be changed")
+                    continue
+            else:
+                c["class"] = ""
+                svc = ws / c["app"] / "services.py"
+                if not (svc.exists() and f"def {c['name']}(" in svc.read_text()):
+                    problems.append(f"{tag}: '{c['name']}' does not exist in services.py, so it cannot be changed")
+                    continue
+        elif c["mode"]:
+            problems.append(f"{tag}: mode can only be 'change'")
+            continue
+        elif c["kind"] == "model":
             info = apps[c["app"]].get(c["class"])
             if info is None:
                 problems.append(f"{tag}: class '{c['class']}' not found in {c['app']}")
@@ -47,7 +80,7 @@ def validate_cards(ws, cards):
                     c["name"] in info["methods"] and c["name"] not in KEEP_OVERRIDABLE):
                 problems.append(f"{tag}: '{c['name']}' already exists on {c['class']}")
                 continue
-        else:
+        elif c["kind"] == "service":
             c["class"] = ""
             svc = ws / c["app"] / "services.py"
             if svc.exists() and f"def {c['name']}(" in svc.read_text():

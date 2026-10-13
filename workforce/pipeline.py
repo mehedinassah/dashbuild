@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import sys
+import textwrap
 import time
 from pathlib import Path
 
@@ -24,11 +25,13 @@ PROMPTS = Path(__file__).parent.parent / "prompts"
 
 # ---------- cards ----------
 def card_id(c):
-    return f"{c['app']}_{(c.get('class') or 'func')}_{c['name']}".lower()
+    tag = f"_{c['tag']}" if c.get("tag") else ""
+    return f"{c['app']}_{(c.get('class') or 'func')}_{c['name']}{tag}".lower()
 
 
 def test_file(ws, c):
-    return Path(ws) / c["app"] / f"test_{(c.get('class') or 'func').lower()}_{c['name']}.py"
+    tag = f"_{c['tag']}" if c.get("tag") else ""
+    return Path(ws) / c["app"] / f"test_{(c.get('class') or 'func').lower()}_{c['name']}{tag}.py"
 
 
 def target_file(ws, c):
@@ -61,9 +64,12 @@ def run_suite(ws, label=None, timeout=240):
     return {"ok": r.returncode == 0, "ran": int(m.group(1)) if m else 0, "output": out}
 
 
-def card_label(ws, c):
-    """What to pass to the test command to run only this card's tests."""
+def card_label(ws, c, wide=False):
+    """What to pass to the test command to run only this card's tests.
+    wide=True runs every test of the app (used when a card changes existing code)."""
     cmd = _cfg(ws).get("test_cmd") or []
+    if wide:
+        return c["app"]
     if any("manage.py" in x for x in cmd):
         return f"{c['app']}.{test_file(ws, c).stem}"
     return str(test_file(ws, c).relative_to(ws))
@@ -203,6 +209,32 @@ def kind_note(card):
             f"for example {n}(product, 3). Never call it as product.{n}(...).\n")
 
 
+def current_source(ws, card):
+    """The code of the function a 'change' card modifies (None if it is not there)."""
+    target = target_file(ws, card)
+    if not target.exists():
+        return None
+    src = target.read_text()
+    fn = codetools.find_def(ast.parse(src), card["name"], card.get("class") or None)
+    if fn is None:
+        return None
+    s, e = codetools._span(fn)
+    return textwrap.dedent("\n".join(src.splitlines()[s:e]))
+
+
+def change_note(ws, card, phase):
+    if card.get("mode") != "change":
+        return ""
+    cur = current_source(ws, card) or ""
+    if phase == "tests":
+        how = ("Write tests ONLY for the NEW behaviour that the rule adds. The tests of the old "
+               "behaviour already exist. Your tests must fail against the current code.")
+    else:
+        how = ("Send the complete new version of this function: keep everything it does today and "
+               "add the new behaviour. The old tests must keep passing too.")
+    return f"\nThis card CHANGES an existing function. Its current code is:\n{cur}\n{how}\n"
+
+
 def _prompt(name, card=None):
     return (PROMPTS / name).read_text() + (kind_note(card) if card else "")
 
@@ -230,6 +262,9 @@ def phase_tests(ws, card, model, feedback):
         good, why = classify_red(r["output"], r["ok"], card["name"])
         if not good:
             path.unlink()
+            if card.get("mode") == "change" and "already pass" in why:
+                why = ("these tests already pass on the current code, so they do not test the NEW "
+                       "behaviour. Test only what the rule adds, with inputs the current code gets wrong.")
             return "REJECTED: " + why
         state["wrote"] = True
         state["written"].add(str(path))
@@ -237,7 +272,8 @@ def phase_tests(ws, card, model, feedback):
                 "Reply DONE.")
 
     task = (f"Card: {card['kind']} {card.get('class') or ''}.{card['name']}\n"
-            f"Rule: {card['spec']}\n\nProject:\n{project_map(ws)}\n")
+            f"Rule: {card['spec']}\n\nProject:\n{project_map(ws)}\n"
+            + change_note(ws, card, "tests"))
     if feedback:
         task += f"\nLast attempt failed because: {feedback}\n"
     res = run_worker(model=model, system=_prompt("card_tests.txt", card), task=task,
@@ -329,7 +365,8 @@ def phase_impl(ws, card, model, feedback):
     tools = [show_models, set_method if cls else set_function, add_import, run_tests]
     tests_src = test_file(ws, card).read_text()
     task = (f"Card: {card['kind']} {cls or ''}.{card['name']}\nRule: {card['spec']}\n\n"
-            f"Project:\n{project_map(ws)}\n\nLocked tests that must pass:\n{tests_src}\n")
+            f"Project:\n{project_map(ws)}\n\nLocked tests that must pass:\n{tests_src}\n"
+            + change_note(ws, card, "impl"))
     if feedback:
         task += f"\nLast attempt failed because: {feedback}\n"
     res = run_worker(model=model, system=_prompt("card_impl.txt", card), task=task, tools=tools,
@@ -349,7 +386,7 @@ def mutation_score(ws, card, limit=8):
     muts = mutation.mutants(original, card["name"], card.get("class") or None, limit)
     if not muts:
         return 1.0, [], 0
-    label = card_label(ws, card)
+    label = card_label(ws, card, wide=card.get("mode") == "change")
     survived = []
     try:
         for desc, src in muts:
@@ -401,6 +438,9 @@ def gates(ws, card, locked_hash, n_new, baseline_ran, state):
 
 def run_card(ws, card, model=None, attempts=None, log=print):
     """Build one card. On success the new files are left in place (not committed)."""
+    if card.get("kind") == "field":
+        from .fields import run_field_card
+        return run_field_card(ws, card, log)
     model = model or CFG["model"]
     attempts = attempts or CFG.get("card_attempts", 5)
     ws = Path(ws)

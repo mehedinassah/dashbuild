@@ -1,12 +1,28 @@
 {
-  "cards": [
-    {"app": "saleitems", "kind": "model", "class": "SaleItem", "name": "line_total",
-     "spec": "line_total returns the item's unit_price multiplied by its quantity. Use the item's own unit_price, not the product's price."},
-    {"app": "sales", "kind": "model", "class": "Sale", "name": "calculate_total",
-     "spec": "calculate_total sets self.total to the sum of line_total() of every item in self.saleitem_set, using each item's line_total() method, and returns that total. A sale with no items has total 0."},
-    {"app": "products", "kind": "model", "class": "Product", "name": "in_stock",
-     "spec": "in_stock returns True when stock is greater than zero, otherwise False."},
-    {"app": "products", "kind": "service", "class": "", "name": "reduce_stock",
-     "spec": "reduce_stock(product, quantity) lowers product.stock by quantity and saves the product. If quantity is greater than product.stock it raises ValueError and changes nothing."}
-  ]
+ "cards": [
+  {
+   "app": "sales",
+   "kind": "field",
+   "class": "Sale",
+   "name": "confirmed",
+   "spec": "A sale is either confirmed or not. New sales start as not confirmed.",
+   "definition": "models.BooleanField(default=False)"
+  },
+  {
+   "app": "sales",
+   "kind": "service",
+   "class": "",
+   "name": "confirm_sale",
+   "mode": "change",
+   "tag": "mark_confirmed",
+   "spec": "confirm_sale also sets sale.confirmed to True and saves the sale after lowering the stock. If sale.confirmed is already True it raises ValueError and changes nothing, so no stock is lowered twice."
+  },
+  {
+   "app": "sales",
+   "kind": "service",
+   "class": "",
+   "name": "cancel_sale",
+   "spec": "cancel_sale(sale) undoes a confirmed sale. If sale.confirmed is False it raises ValueError and changes nothing. Otherwise it adds each item's quantity back to its product's stock (items from sale.saleitem_set), saves each product, sets sale.confirmed to False and saves the sale."
+  }
+ ]
 }

@@ -76,7 +76,10 @@ def run_cards(ws, cards, model, yes=False, ask=input, state=None, log=print, roo
             save_state(state)
             continue
         show_change(ws, res["files"])
-        log(f"PASSED {cid} (bug-detection score {res['kill_rate']:.0%}, {res['attempts']} attempt(s))")
+        if res["kill_rate"] is None:
+            log(f"PASSED {cid} (migration created, whole test suite green)")
+        else:
+            log(f"PASSED {cid} (bug-detection score {res['kill_rate']:.0%}, {res['attempts']} attempt(s))")
         approve = True if yes else None
         while approve is None:
             a = ask("Keep and commit this? Type y or n, then Enter: ").strip().lower()

@@ -469,3 +469,175 @@ class T(TestCase):
     use(monkeypatch, Fake([tests] * 2, [impl] * 2))
     r = pipeline.run_card(ws, BENCH_CARDS[3], "fake", attempts=1, log=quiet)
     assert r["status"] == "failed" and "refresh_from_db" in r["reason"]
+
+
+# ---------- v9: field cards and change cards ----------
+FIELD_CARD = {"app": "sales", "kind": "field", "class": "Sale", "name": "confirmed",
+              "spec": "A sale is confirmed or not; new sales start as not confirmed.",
+              "definition": "models.BooleanField(default=False)"}
+
+
+def test_field_card_adds_field_and_migration(ws):
+    r = pipeline.run_card(ws, FIELD_CARD, "none", log=quiet)
+    assert r["status"] == "passed", r["reason"]
+    assert "confirmed = models.BooleanField(default=False)" in (ws / "sales/models.py").read_text()
+    assert any("migrations/0002" in f for f in r["files"]) and r["kill_rate"] is None
+    assert pipeline.run_suite(ws)["ok"]
+    chk = subprocess.run([sys.executable, "manage.py", "makemigrations", "--check", "--dry-run"],
+                         cwd=ws, capture_output=True)
+    assert chk.returncode == 0
+
+
+def test_field_card_rejects_unsafe_or_incomplete_definitions(ws):
+    from workforce import fields
+    assert fields.check_definition("models.BooleanField(default=False)") is None
+    assert fields.check_definition("models.CharField(max_length=20, default='')") is None
+    assert fields.check_definition("models.ForeignKey('customers.Customer', on_delete=models.PROTECT, null=True)") is None
+    assert "default" in fields.check_definition("models.BooleanField()")
+    assert "not allowed" in fields.check_definition("models.FilePathField(default='')")
+    assert "on_delete" in fields.check_definition("models.ForeignKey('a.B', null=True)")
+    assert "plain value" in fields.check_definition("models.IntegerField(default=__import__('os').getcwd())")
+    assert fields.check_definition("print(1)")
+    assert fields.check_definition("models.CharField(default='')")  # max_length missing
+
+
+def test_field_card_failure_leaves_project_untouched(ws):
+    before = (ws / "sales/models.py").read_text()
+    bad = dict(FIELD_CARD, definition="models.BooleanField()")
+    r = pipeline.run_card(ws, bad, "none", log=quiet)
+    assert r["status"] == "failed" and (ws / "sales/models.py").read_text() == before
+    assert git_clean(ws)
+
+
+def test_add_field_goes_after_the_last_field():
+    src = "class A(models.Model):\n    x = models.IntegerField(default=0)\n\n    def f(self):\n        return 1\n"
+    new, err = fields_add(src)
+    assert not err and new.index("y = ") < new.index("def f") and new.index("x = ") < new.index("y = ")
+    assert fields_add("class A:\n    z = 1\n")[1] is None
+    assert "already exists" in fields_add("class A(models.Model):\n    y = models.IntegerField(default=0)\n")[1]
+    assert "does not exist" in fields_add("class B:\n    pass\n")[1]
+
+
+def fields_add(src):
+    from workforce import fields
+    return fields.add_field(src, "A", "y", "models.BooleanField(default=False)")
+
+
+def test_validate_field_and_change_cards(ws):
+    change = {"app": "sales", "kind": "service", "name": "reduce_stock", "mode": "change",
+              "tag": "no_negative", "spec": "reduce_stock also raises ValueError when quantity is negative."}
+    bads = [dict(FIELD_CARD, name="customer_name"), dict(FIELD_CARD, definition="models.BooleanField()"),
+            dict(change, tag=""), dict(change, mode="rewrite"),
+            dict(change, name="nope"), dict(change, kind="model", **{"class": "Product"}, name="nope")]
+    valid, problems = rules_mod.validate_cards(ws, [FIELD_CARD] + bads)
+    assert [c["kind"] for c in valid] == ["field"] and len(problems) == len(bads)
+    # a change card needs its target to exist: build it first
+    use_service(ws)
+    valid, problems = rules_mod.validate_cards(ws, [change])
+    assert len(valid) == 1 and pipeline.card_id(valid[0]) == "sales_func_reduce_stock_no_negative"
+
+
+SERVICE_TESTS = '''
+from django.test import TestCase
+from sales.models import Product
+from sales.services import reduce_stock
+
+
+class ReduceStockTests(TestCase):
+    def test_reduces(self):
+        p = Product.objects.create(name="a", price="1.00", stock=5)
+        reduce_stock(p, 2)
+        p.refresh_from_db()
+        self.assertEqual(p.stock, 3)
+
+    def test_exact(self):
+        p = Product.objects.create(name="a", price="1.00", stock=5)
+        reduce_stock(p, 5)
+        p.refresh_from_db()
+        self.assertEqual(p.stock, 0)
+
+    def test_too_much(self):
+        p = Product.objects.create(name="a", price="1.00", stock=1)
+        with self.assertRaises(ValueError):
+            reduce_stock(p, 2)
+        p.refresh_from_db()
+        self.assertEqual(p.stock, 1)
+'''
+SERVICE_IMPL = ("def reduce_stock(product, quantity):\n    if product.stock < quantity:\n"
+                "        raise ValueError('not enough stock')\n    product.stock -= quantity\n"
+                "    product.save()\n")
+
+
+def use_service(ws, monkeypatch=None):
+    """Put the plain reduce_stock service in the project (as an earlier card would have)."""
+    (ws / "sales/services.py").write_text('"""Business logic functions."""\n\n\n' + SERVICE_IMPL)
+    (ws / "sales/test_func_reduce_stock.py").write_text(SERVICE_TESTS)
+
+
+CHANGE_CARD = {"app": "sales", "kind": "service", "class": "", "name": "reduce_stock", "mode": "change",
+               "tag": "no_negative",
+               "spec": "reduce_stock also raises ValueError when quantity is negative and then changes nothing."}
+
+CHANGE_TESTS = '''
+from django.test import TestCase
+from sales.models import Product
+from sales.services import reduce_stock
+
+
+class ReduceStockNegativeTests(TestCase):
+    def test_negative_is_refused(self):
+        p = Product.objects.create(name="a", price="1.00", stock=5)
+        with self.assertRaises(ValueError):
+            reduce_stock(p, -1)
+        p.refresh_from_db()
+        self.assertEqual(p.stock, 5)
+
+    def test_zero_is_fine(self):
+        p = Product.objects.create(name="a", price="1.00", stock=5)
+        reduce_stock(p, 0)
+        p.refresh_from_db()
+        self.assertEqual(p.stock, 5)
+
+    def test_minus_two_is_refused(self):
+        p = Product.objects.create(name="a", price="1.00", stock=3)
+        with self.assertRaises(ValueError):
+            reduce_stock(p, -2)
+        p.refresh_from_db()
+        self.assertEqual(p.stock, 3)
+'''
+CHANGE_IMPL = ("def reduce_stock(product, quantity):\n    if quantity < 0:\n"
+               "        raise ValueError('negative quantity')\n"
+               "    if product.stock < quantity:\n        raise ValueError('not enough stock')\n"
+               "    product.stock -= quantity\n    product.save()\n")
+
+
+def test_change_card_modifies_existing_function(ws, monkeypatch):
+    use_service(ws)
+    subprocess.run(["git", "add", "-A"], cwd=ws, check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "svc"], cwd=ws, check=True)
+    seen = {}
+    fake = Fake([CHANGE_TESTS], [CHANGE_IMPL])
+    real = fake.__call__
+
+    def spy(**kw):
+        seen["first"] = seen.get("first") or kw["messages"][1]["content"]
+        return real(**kw)
+    use(monkeypatch, spy)
+    r = pipeline.run_card(ws, CHANGE_CARD, "fake", log=quiet)
+    assert r["status"] == "passed", r["reason"]
+    assert "CHANGES an existing function" in seen["first"] and "def reduce_stock" in seen["first"]
+    assert (ws / "sales/test_func_reduce_stock_no_negative.py").exists()
+    assert (ws / "sales/test_func_reduce_stock.py").read_text().strip() == SERVICE_TESTS.strip()
+    assert "quantity < 0" in (ws / "sales/services.py").read_text()
+    assert pipeline.run_suite(ws)["ok"]
+
+
+def test_change_card_tests_that_already_pass_are_rejected(ws, monkeypatch):
+    use_service(ws)
+    subprocess.run(["git", "add", "-A"], cwd=ws, check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "svc"], cwd=ws, check=True)
+    # tests of the OLD behaviour only: they pass already, so they test nothing new
+    use(monkeypatch, Fake([SERVICE_TESTS.replace("ReduceStockTests", f"OldAgain{i}") for i in range(30)], [CHANGE_IMPL] * 5))
+    r = pipeline.run_card(ws, CHANGE_CARD, "fake", attempts=2, log=quiet)
+    assert r["status"] == "failed"
+    assert not (ws / "sales/test_func_reduce_stock_no_negative.py").exists()
