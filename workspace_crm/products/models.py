@@ -12,3 +12,6 @@ class Product(models.Model):
 
     def __str__(self):
         return str(self.name)
+
+    def in_stock(self):
+        return self.stock > 0
