@@ -3,6 +3,10 @@ from products.services import reduce_stock
 
 
 def confirm_sale(sale):
+    # Check if sale is already confirmed
+    if sale.confirmed:
+        raise ValueError("Sale is already confirmed")
+
     # Check if all items in the sale are available
     for item in sale.saleitem_set.all():
         product = item.product
@@ -12,3 +16,7 @@ def confirm_sale(sale):
     # If all items are available, reduce stock for each item
     for item in sale.saleitem_set.all():
         reduce_stock(item.product, item.quantity)
+
+    # Set confirmed to True and save the sale
+    sale.confirmed = True
+    sale.save()
