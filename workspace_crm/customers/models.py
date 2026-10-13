@@ -6,3 +6,6 @@ class Customer(models.Model):
 
     def __str__(self):
         return self.name
+
+    def total_spent(self):
+        return sum(sale.total for sale in self.sale_set.all())
