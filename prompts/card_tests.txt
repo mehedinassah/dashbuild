@@ -19,4 +19,8 @@ Rules for the test file:
   missing required field: that crashes the test before it checks anything.
 - When the rule says something is saved, call obj.refresh_from_db() before checking the value, so the
   test reads what is really stored in the database.
+- When the rule has several items and says "change nothing" if one is short, write a test where the SECOND (last)
+  item is the short one and the FIRST item is fine, then check that the first item's product is unchanged.
+  A short FIRST item cannot show whether earlier items were already changed.
+- Do not test negative numbers or other invalid input unless the rule itself talks about them.
 - Do NOT write the feature itself. The tests must fail now because it does not exist yet.
