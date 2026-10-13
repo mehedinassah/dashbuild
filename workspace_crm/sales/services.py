@@ -20,3 +20,21 @@ def confirm_sale(sale):
     # Set confirmed to True and save the sale
     sale.confirmed = True
     sale.save()
+
+
+def cancel_sale(sale):
+    if not sale.confirmed:
+        raise ValueError("Sale is not confirmed.")
+
+    # Retrieve all items in the sale
+    sale_items = sale.saleitem_set.all()
+
+    # Add each item's quantity back to its product's stock
+    for item in sale_items:
+        product = item.product
+        product.stock += item.quantity
+        product.save()
+
+    # Set the sale as unconfirmed
+    sale.confirmed = False
+    sale.save()
