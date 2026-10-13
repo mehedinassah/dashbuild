@@ -1,0 +1,6 @@
+{
+  "cards": [
+    {"app": "customers", "kind": "model", "class": "Customer", "name": "total_spent",
+     "spec": "total_spent returns the sum of the stored total field of every sale of this customer, using self.sale_set. A customer with no sales has total_spent 0."}
+  ]
+}
