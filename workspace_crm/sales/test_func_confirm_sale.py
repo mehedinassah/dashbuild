@@ -72,3 +72,15 @@ class TestConfirmSale(TestCase):
         
         self.product2.refresh_from_db()
         self.assertEqual(self.product2.stock, 3)  # No change
+
+    def test_confirm_sale_second_item_short_changes_nothing(self):
+        self.item2.quantity = 4  # product2 has only 3 in stock
+        self.item2.save()
+
+        with self.assertRaises(ValueError):
+            confirm_sale(self.sale)
+
+        self.product1.refresh_from_db()
+        self.assertEqual(self.product1.stock, 5)  # first item must NOT have been reduced
+        self.product2.refresh_from_db()
+        self.assertEqual(self.product2.stock, 3)
