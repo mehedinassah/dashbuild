@@ -1,0 +1,6 @@
+{
+  "cards": [
+    {"app": "sales", "kind": "service", "class": "", "name": "confirm_sale",
+     "spec": "confirm_sale(sale) confirms a sale and lowers stock. First check every item in sale.saleitem_set: if any item's quantity is greater than its product's stock, raise ValueError and change nothing for any product. Only if every item is available, call reduce_stock(item.product, item.quantity) for each item. reduce_stock is imported with: from products.services import reduce_stock"}
+  ]
+}
