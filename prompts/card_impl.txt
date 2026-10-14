@@ -12,3 +12,7 @@ Rules:
 - Use only field names and relation names shown by show_models.
 - Do not import os, sys, subprocess or similar. Do not use open, eval or exec.
 - Do not special-case the numbers that appear in the tests. Implement the real rule.
+- When the rule says "changes nothing" (or "no stock is lowered") on an error: do EVERY check first and
+  raise before you change, save or lower anything. A function that changes data and raises afterwards
+  breaks that rule.
+- Put the new check at the very TOP of the function when the rule says it applies first.

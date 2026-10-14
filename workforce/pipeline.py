@@ -360,7 +360,16 @@ def phase_impl(ws, card, model, feedback):
         r = run_suite(ws)
         state["tests_passed"] = r["ok"]
         state["last_fail"] = "" if r["ok"] else summarize(r["output"], 500)
-        return "OK, all tests pass. Reply DONE." if r["ok"] else summarize(r["output"])
+        if r["ok"]:
+            return "OK, all tests pass. Reply DONE."
+        out = summarize(r["output"])
+        seen = state.setdefault("fail_counts", {})
+        seen[out] = seen.get(out, 0) + 1
+        if seen[out] >= 2:
+            out += ("\nTHIS EXACT FAILURE HAPPENED " + str(seen[out]) + " TIMES. Your approach is wrong. "
+                    "Read the failing test line again. If the test expects data to be unchanged, your code "
+                    "must raise BEFORE it changes or saves anything: move every check to the top.")
+        return out
 
     tools = [show_models, set_method if cls else set_function, add_import, run_tests]
     tests_src = test_file(ws, card).read_text()
@@ -455,7 +464,12 @@ def run_card(ws, card, model=None, attempts=None, log=print):
         return result
     original = target.read_text() if target.exists() else None
     feedback = ""
+    budget = CFG.get("card_minutes", 12) * 60
     for n in range(1, attempts + 1):
+        if n > 1 and time.time() - t0 > budget:
+            log(f"[{result['id']}] time budget of {budget // 60} minutes used, stopping this card")
+            feedback = f"stopped after {budget // 60} minutes (last problem: {feedback[:200]})"
+            break
         result["attempts"] = n
         log(f"[{result['id']}] attempt {n}: writing tests")
         if tf.exists():

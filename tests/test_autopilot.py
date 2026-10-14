@@ -641,3 +641,47 @@ def test_change_card_tests_that_already_pass_are_rejected(ws, monkeypatch):
     r = pipeline.run_card(ws, CHANGE_CARD, "fake", attempts=2, log=quiet)
     assert r["status"] == "failed"
     assert not (ws / "sales/test_func_reduce_stock_no_negative.py").exists()
+
+
+# ---------- v10: time budget and repeated failures ----------
+def test_card_stops_when_time_budget_is_used(ws, monkeypatch):
+    monkeypatch.setitem(pipeline.CFG, "card_minutes", 0)
+    use(monkeypatch, Fake([GOOD_TESTS, GOOD_TESTS], [WRONG_IMPL, WRONG_IMPL]))
+    r = pipeline.run_card(ws, CARD, "fake", attempts=5, log=quiet)
+    assert r["status"] == "failed" and r["attempts"] == 1 and "stopped after" in r["reason"]
+    assert git_clean(ws)
+
+
+def test_repeated_failure_gets_a_stronger_hint(ws, monkeypatch):
+    use(monkeypatch, Fake([GOOD_TESTS], [WRONG_IMPL] * 6))
+    seen = []
+    real = pipeline.run_suite
+
+    def spy(*a, **k):
+        r = real(*a, **k)
+        seen.append(r)
+        return r
+    monkeypatch.setattr(pipeline, "run_suite", spy)
+    msgs = []
+    orig_chat = worker.chat
+
+    def watch(**kw):
+        msgs.extend(m["content"] for m in kw["messages"] if m["role"] == "tool")
+        return orig_chat(**kw)
+    monkeypatch.setattr(worker, "chat", watch)
+    pipeline.run_card(ws, CARD, "fake", attempts=1, log=quiet)
+    assert any("EXACT FAILURE HAPPENED" in m for m in msgs)
+
+
+def test_impl_prompt_says_check_before_changing():
+    txt = (pipeline.PROMPTS / "card_impl.txt").read_text()
+    assert "BEFORE you change" in txt or "raise before you change" in txt
+
+
+def test_change_card_already_built_is_skipped(ws):
+    use_service(ws)
+    ok, _ = rules_mod.validate_cards(ws, [CHANGE_CARD])
+    assert len(ok) == 1
+    (ws / "sales/test_func_reduce_stock_no_negative.py").write_text("# built earlier\n")
+    ok, problems = rules_mod.validate_cards(ws, [CHANGE_CARD])
+    assert ok == [] and "already built" in problems[0]

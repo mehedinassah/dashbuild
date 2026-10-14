@@ -10,6 +10,7 @@ from .config import CFG
 from . import fields
 from .notes import project_map, scan
 from .pipeline import PROMPTS, card_id
+from .pipeline import test_file as pipeline_test_file
 
 KEEP_OVERRIDABLE = {"save", "clean", "delete"}
 
@@ -56,6 +57,9 @@ def validate_cards(ws, cards):
         elif c["mode"] == "change":
             if not re.fullmatch(r"[a-z][a-z0-9_]{1,30}", c["tag"]):
                 problems.append(f"{tag}: a change card needs a short snake_case 'tag', for example 'no_double_confirm'")
+                continue
+            if pipeline_test_file(ws, c).exists():
+                problems.append(f"{tag}: already built (its test file {pipeline_test_file(ws, c).name} exists)")
                 continue
             if c["kind"] == "model":
                 info = apps[c["app"]].get(c["class"])
