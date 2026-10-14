@@ -96,6 +96,7 @@ def validate_cards(ws, cards):
             continue
         seen.add(cid)
         valid.append(c)
+    valid.sort(key=lambda c: c["kind"] != "field")  # fields first, order otherwise kept
     if len(valid) > 8:
         problems.append("more than 8 cards; keeping the first 8")
         valid = valid[:8]

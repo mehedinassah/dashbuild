@@ -685,3 +685,45 @@ def test_change_card_already_built_is_skipped(ws):
     (ws / "sales/test_func_reduce_stock_no_negative.py").write_text("# built earlier\n")
     ok, problems = rules_mod.validate_cards(ws, [CHANGE_CARD])
     assert ok == [] and "already built" in problems[0]
+
+
+# ---------- v11: ./wfa plan ----------
+def _plan_args(ws, out):
+    return NS(workspace=str(ws), model="fake", out=str(out), description="shop", no_preflight=True)
+
+
+def test_plan_keep_drop_edit_and_fields_first(ws, monkeypatch, tmp_path):
+    cards = [dict(CARD), dict(FIELD_CARD),
+             {"app": "sales", "kind": "model", "class": "Product", "name": "is_cheap",
+              "spec": "is_cheap returns True when price is below 5."}]
+    monkeypatch.setattr(rules_mod, "chat", lambda **kw: NS(message=NS(content=json.dumps({"cards": cards}))))
+    answers = iter(["maybe", "y", "y", "e", "is_cheap returns True when price is below 10.", "y"])
+    out = tmp_path / "plan.json"
+    lines = []
+    rc = auto.run_plan(_plan_args(ws, out), ask=lambda q: next(answers), out=lines.append)
+    assert rc == 0
+    saved = json.loads(out.read_text())["cards"]
+    assert [c["name"] for c in saved] == ["confirmed", "line_total", "is_cheap"]  # field first
+    assert "below 10" in saved[2]["spec"]
+    assert any("Please type" in l for l in lines)
+    assert not (ws / "cards_plan.json").exists()
+
+
+def test_plan_dropping_everything_writes_nothing(ws, monkeypatch, tmp_path):
+    monkeypatch.setattr(rules_mod, "chat", lambda **kw: NS(message=NS(content=json.dumps({"cards": [CARD]}))))
+    out = tmp_path / "plan.json"
+    rc = auto.run_plan(_plan_args(ws, out), ask=lambda q: "n", out=lambda *a: None)
+    assert rc == 1 and not out.exists()
+
+
+def test_plan_rejects_bad_field_definition(ws, monkeypatch, tmp_path):
+    bad = dict(FIELD_CARD, definition="models.BooleanField()")
+    replies = [json.dumps({"cards": [bad]}), json.dumps({"cards": [bad]}), json.dumps({"cards": [bad]})]
+    monkeypatch.setattr(rules_mod, "chat", lambda **kw: NS(message=NS(content=replies.pop(0))))
+    rc = auto.run_plan(_plan_args(ws, tmp_path / "p.json"), ask=lambda q: "y", out=lambda *a: None)
+    assert rc == 1
+
+
+def test_rules_prompt_teaches_field_cards():
+    txt = (pipeline.PROMPTS / "card_rules.txt").read_text()
+    assert '"field"' in txt and "definition" in txt and "default=" in txt

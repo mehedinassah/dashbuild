@@ -151,6 +151,51 @@ def run_auto(args):
     return 0
 
 
+def run_plan(args, ask=input, out=print):
+    """One sentence -> the model drafts cards -> Python validates -> you keep, drop or edit each."""
+    ws = Path(args.workspace).resolve()
+    model = args.model or CFG["model"]
+    problem = preflight(ws, model, check_ollama=not args.no_preflight)
+    if problem and "uncommitted" not in problem:
+        out("Cannot start: " + problem)
+        return 1
+    out("Drafting cards...")
+    cards, problems = rules.propose_cards(args.description, ws, model)
+    for p in problems:
+        out("note: " + p)
+    if not cards:
+        out("The model proposed no valid cards. Try a more specific sentence, or write the cards yourself.")
+        return 1
+    kept = []
+    for i, c in enumerate(cards, 1):
+        what = (f"field {c['class']}.{c['name']} = {c['definition']}" if c["kind"] == "field"
+                else f"{c['kind']} {(c['class'] + '.') if c['class'] else ''}{c['name']}")
+        out(f"\nCard {i} of {len(cards)}: {what}\n  Rule: {c['spec']}")
+        while True:
+            a = ask("Keep this card? y = keep, n = drop, e = change the rule text: ").strip().lower()
+            if a in ("y", "yes"):
+                kept.append(c)
+                break
+            if a in ("n", "no"):
+                break
+            if a in ("e", "edit"):
+                c = dict(c, spec=ask("New rule text: ").strip())
+                out("  Rule: " + c["spec"])
+                continue
+            out("Please type y, n or e.")
+    kept, problems = rules.validate_cards(ws, kept)
+    for p in problems:
+        out("note: " + p)
+    if not kept:
+        out("No cards kept.")
+        return 1
+    Path(args.out).write_text(json.dumps({"cards": kept}, indent=1) + "\n")
+    out(f"\nSaved {len(kept)} card(s) to {args.out}. Read the file, change anything you like, then:")
+    out(f"  git add {args.out} && git commit -m 'Add cards'")
+    out(f"  ./wfa auto --cards {args.out} --no-design")
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="wfa")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -164,6 +209,12 @@ def main(argv=None):
     a.add_argument("--resume", action="store_true")
     a.add_argument("--no-design", action="store_true")
     a.add_argument("--no-preflight", action="store_true")
+    pl = sub.add_parser("plan", help="one sentence -> the model drafts cards, you keep/drop/edit them")
+    pl.add_argument("description")
+    pl.add_argument("--workspace", default=str(ROOT / "workspace_crm"))
+    pl.add_argument("--model")
+    pl.add_argument("--out", default="cards_plan.json")
+    pl.add_argument("--no-preflight", action="store_true")
     sub.add_parser("score", help="show what each model has managed")
     m = sub.add_parser("map", help="print the project map the agent sees")
     m.add_argument("--workspace", default=str(ROOT / "workspace_crm"))
@@ -172,6 +223,8 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if args.cmd == "auto":
         return run_auto(args)
+    if args.cmd == "plan":
+        return run_plan(args)
     if args.cmd == "score":
         print(scorecard.summary())
         return 0
