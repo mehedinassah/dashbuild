@@ -52,3 +52,18 @@ Check: ./wf test should show 17 passed; workspace_crm tests should be OK;
 
 ## Backup command (flag order matters: --exclude before the folder)
 cd ~ && tar czf ai-workforce-backup-$(date +%F).tar.gz --exclude=.venv --exclude=__pycache__ --exclude=db.sqlite3 ai-workforce
+
+## Status 2026-10-14
+- Autopilot v10 installed (67 tests pass in tests/). CRM suite: 55 tests pass (cd workspace_crm && python manage.py test).
+- Model: qwen3:14b with "think": false in config.json.
+- Built and approved cards: SaleItem.line_total, Sale.calculate_total, Product.in_stock, reduce_stock,
+  confirm_sale (checks confirmed first, then stock, then lowers stock), Customer.total_spent,
+  Sale.confirmed (field + migration), cancel_sale.
+- Card kinds: model (new method), service (new function in services.py), field (new model field + migration,
+  no model involved), and mode "change" with a "tag" (modify an existing function; skipped if its test file exists).
+- Run cards: ./wfa auto --cards FILE --no-design   (commit the cards file first; the tree must be clean).
+- Limits: each card has a 12-minute budget (config "card_minutes"); a failed card is rolled back.
+- Known gaps: confirm_sale / cancel_sale are not wrapped in a database transaction; two items for the same
+  product in one sale can pass the stock check separately. Rules written by a person work much better
+  than rules proposed by the model.
+- Next: let the model draft cards from one plain sentence, validated by Python, approved by the user.
