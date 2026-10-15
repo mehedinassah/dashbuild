@@ -1,0 +1,12 @@
+{
+ "cards": [
+  {"app": "customers", "kind": "field", "class": "Customer", "name": "notes",
+   "spec": "Free text notes about the customer. Empty by default.",
+   "definition": "models.TextField(blank=True, default='')"},
+  {"app": "customers", "kind": "field", "class": "Customer", "name": "is_active",
+   "spec": "Marks whether the customer is active. Defaults to True.",
+   "definition": "models.BooleanField(default=True)"},
+  {"app": "sales", "kind": "service", "class": "", "name": "create_sale",
+   "spec": "create_sale(customer, number, date) creates and returns a new Sale for that customer with total 0. If customer.is_active is False it raises ValueError and creates no Sale."}
+ ]
+}
