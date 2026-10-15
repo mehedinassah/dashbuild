@@ -3,6 +3,7 @@ class Customer(models.Model):
     name = models.CharField(max_length=100)
     email = models.EmailField()
     phone = models.CharField(max_length=20)
+    notes = models.TextField(blank=True, default='')
 
     def __str__(self):
         return self.name
