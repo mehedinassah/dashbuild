@@ -14,7 +14,7 @@ import textwrap
 import time
 from pathlib import Path
 
-from . import codetools, mutation, ui
+from . import codetools, mutation, wiring
 from .config import CFG
 from .notes import project_map
 from .tools import python_problem, undefined_names
@@ -403,7 +403,7 @@ def phase_impl(ws, card, model, feedback):
             return "REJECTED: " + err
         if card["kind"] == "view" and not cls and \
                 codetools.find_def(ast.parse(new), card["name"]) is not None:
-            bad = ui.wire_url(ws, card["app"], card["url"], card["name"])
+            bad = wiring.wire_url(ws, card["app"], card["url"], card["name"])
             if bad:
                 return "REJECTED: " + bad
         target.write_text(new)
@@ -620,7 +620,7 @@ def run_card(ws, card, model=None, attempts=None, log=print):
         ok, why, rate = gates(ws, card, locked, n_new, base["ran"], state)
         result["kill_rate"] = rate
         if ok and card["kind"] == "view":
-            changed = ui.apply(ws, card)
+            changed = wiring.apply(ws, card)
             if changed:
                 chk = run_suite(ws)
                 if not chk["ok"]:

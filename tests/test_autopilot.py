@@ -829,7 +829,7 @@ def test_card_tests_prompt_covers_dates():
 
 
 # ---------- v14: view cards ----------
-from workforce import ui  # noqa: E402
+from workforce import wiring  # noqa: E402
 
 SHIP_SERVICE = '''"""Business logic functions."""
 
@@ -913,27 +913,27 @@ def _commit_all(ws, msg="base"):
 
 
 def test_view_card_check_rules():
-    assert ui.check_view_card(VIEW_CARD) is None
-    assert "url" in ui.check_view_card(dict(VIEW_CARD, url="/ship/"))
-    assert "url" in ui.check_view_card(dict(VIEW_CARD, url="ship"))
-    assert "button" in ui.check_view_card(dict(VIEW_CARD, button="<b>x</b>"))
-    assert "show_if" in ui.check_view_card(dict(VIEW_CARD, show_if="__import__('os')"))
-    assert "pk" in ui.check_view_card(dict(VIEW_CARD, url="export/"))
-    assert "url_name" in ui.check_view_card({"class": "X", "url_name": ""})
-    assert ui.check_view_card({"class": "X", "url_name": "sales:create"}) is None
+    assert wiring.check_view_card(VIEW_CARD) is None
+    assert "url" in wiring.check_view_card(dict(VIEW_CARD, url="/ship/"))
+    assert "url" in wiring.check_view_card(dict(VIEW_CARD, url="ship"))
+    assert "button" in wiring.check_view_card(dict(VIEW_CARD, button="<b>x</b>"))
+    assert "show_if" in wiring.check_view_card(dict(VIEW_CARD, show_if="__import__('os')"))
+    assert "pk" in wiring.check_view_card(dict(VIEW_CARD, url="export/"))
+    assert "url_name" in wiring.check_view_card({"class": "X", "url_name": ""})
+    assert wiring.check_view_card({"class": "X", "url_name": "sales:create"}) is None
 
 
 def test_wire_url_messages_and_button_are_idempotent(ws):
-    assert ui.wire_url(ws, "sales", "<int:pk>/ship/", "ship_sale_view") is None
-    assert ui.wire_url(ws, "sales", "<int:pk>/ship/", "ship_sale_view") is None
+    assert wiring.wire_url(ws, "sales", "<int:pk>/ship/", "ship_sale_view") is None
+    assert wiring.wire_url(ws, "sales", "<int:pk>/ship/", "ship_sale_view") is None
     urls = (ws / "sales/urls.py").read_text()
     assert urls.count("ship_sale_view") == 2 and 'path("<int:pk>/ship/", views.ship_sale_view' in urls
-    ch = ui.ensure_messages_block(ws)
-    assert len(ch) == 1 and ui.ensure_messages_block(ws) == {}
+    ch = wiring.ensure_messages_block(ws)
+    assert len(ch) == 1 and wiring.ensure_messages_block(ws) == {}
     base = (ws / "core/templates/core/base.html").read_text()
     assert base.index('class="messages"') < base.index("{% block content %}") and ".message.error" in base
-    ch = ui.add_row_button(ws, "sales", "ship_sale_view", "Ship", "not item.shipped")
-    assert len(ch) == 1 and ui.add_row_button(ws, "sales", "ship_sale_view", "Ship") == {}
+    ch = wiring.add_row_button(ws, "sales", "ship_sale_view", "Ship", "not item.shipped")
+    assert len(ch) == 1 and wiring.add_row_button(ws, "sales", "ship_sale_view", "Ship") == {}
     lst = (ws / "sales/templates/sales/list.html").read_text()
     assert "{% if not item.shipped %}" in lst and "{% csrf_token %}" in lst and ">Ship<" in lst
 

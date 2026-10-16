@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ollama import chat
 
-from . import fields, ui
+from . import fields, wiring
 from .config import CFG
 from .notes import project_map, scan
 from .pipeline import PROMPTS, card_id
@@ -56,7 +56,7 @@ def validate_cards(ws, cards):
                 continue
             c["mode"] = c["tag"] = ""
         elif c["kind"] == "view":
-            bad = ui.check_view_card(c)
+            bad = wiring.check_view_card(c)
             vp, up = ws / c["app"] / "views.py", ws / c["app"] / "urls.py"
             if not bad and not (vp.exists() and up.exists()):
                 bad = f"{c['app']} has no views.py or urls.py"
