@@ -727,3 +727,52 @@ def test_plan_rejects_bad_field_definition(ws, monkeypatch, tmp_path):
 def test_rules_prompt_teaches_field_cards():
     txt = (pipeline.PROMPTS / "card_rules.txt").read_text()
     assert '"field"' in txt and "definition" in txt and "default=" in txt
+
+
+# ---------- v12: no invented behaviour ----------
+def test_tests_for_inputs_the_rule_never_mentions_are_bounced(ws):
+    card = {"app": "sales", "kind": "service", "class": "", "name": "create_thing",
+            "spec": "create_thing(customer) creates a thing. If the customer is inactive it raises ValueError."}
+    base = '''
+from django.test import TestCase
+from sales.services import create_thing
+
+
+class T(TestCase):
+    def test_inactive_raises(self):
+        with self.assertRaises(ValueError):
+            create_thing(None)
+%s'''
+    ok = base % ""
+    assert pipeline.check_tests(ok, card) is None
+    by_name = base % '''
+    def test_create_thing_with_invalid_date(self):
+        with self.assertRaises(ValueError):
+            create_thing(None)
+'''
+    assert "never mentions" in pipeline.check_tests(by_name, card)
+    by_value = base % '''
+    def test_other(self):
+        with self.assertRaises(ValueError):
+            create_thing("invalid_date")
+'''
+    assert "invalid input" in pipeline.check_tests(by_value, card)
+    mentioned = dict(card, spec=card["spec"] + " An invalid customer also raises ValueError.")
+    assert pipeline.check_tests(by_name, mentioned) is None
+
+
+def test_unused_new_imports_are_removed_but_old_ones_stay():
+    old = "from a import b\n\n\ndef f():\n    return b\n"
+    new = ("from a import b\nfrom django.utils.dateparse import parse_date\nimport datetime\n"
+           "from decimal import Decimal, ROUND_UP\n\n\ndef f():\n    return b\n\n\ndef g(x):\n"
+           "    return Decimal(x)\n")
+    out = codetools.drop_unused_new_imports(old, new)
+    assert "parse_date" not in out and "datetime" not in out and "ROUND_UP" not in out
+    assert "from decimal import Decimal" in out and "from a import b" in out
+    # an import that was already there is never touched, even if unused
+    assert codetools.drop_unused_new_imports("import os_like\n", "import os_like\n") == "import os_like\n"
+    compile(out, "x", "exec")
+
+
+def test_impl_prompt_forbids_extras():
+    assert "ONLY what the rule says" in (pipeline.PROMPTS / "card_impl.txt").read_text()

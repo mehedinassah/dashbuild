@@ -156,3 +156,37 @@ def add_import(src, statement):
     lines = src.splitlines()
     lines[last:last] = [statement]
     return "\n".join(lines).rstrip("\n") + "\n", None
+
+
+def drop_unused_new_imports(original_src, new_src):
+    """Remove imports the model added but never uses. Imports that were already there stay."""
+    try:
+        old_tree, tree = ast.parse(original_src or ""), ast.parse(new_src)
+    except SyntaxError:
+        return new_src
+    had = {ast.dump(n) for n in old_tree.body if isinstance(n, (ast.Import, ast.ImportFrom))}
+    used = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+    lines = new_src.splitlines()
+    edits = []
+    for n in tree.body:
+        if not isinstance(n, (ast.Import, ast.ImportFrom)) or ast.dump(n) in had:
+            continue
+        keep = [a for a in n.names
+                if (a.asname or a.name.split(".")[0]) in used or a.name == "*"]
+        if len(keep) == len(n.names):
+            continue
+        if keep:
+            names = ", ".join(a.name + (f" as {a.asname}" if a.asname else "") for a in keep)
+            text = (f"from {'.' * n.level}{n.module or ''} import {names}" if isinstance(n, ast.ImportFrom)
+                    else f"import {names}")
+        else:
+            text = None
+        edits.append((n.lineno - 1, n.end_lineno, text))
+    for start, end, text in sorted(edits, reverse=True):
+        lines[start:end] = [text] if text else []
+    out = "\n".join(lines).rstrip("\n") + "\n"
+    try:
+        ast.parse(out)
+    except SyntaxError:
+        return new_src
+    return out

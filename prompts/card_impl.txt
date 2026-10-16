@@ -16,3 +16,5 @@ Rules:
   raise before you change, save or lower anything. A function that changes data and raises afterwards
   breaks that rule.
 - Put the new check at the very TOP of the function when the rule says it applies first.
+- Implement ONLY what the rule says. Do not add validation, type checks, date parsing, extra errors or
+  extra behaviour that the rule does not mention. Do not import anything you do not use.

@@ -23,6 +23,9 @@ from .worker import run_worker
 PROMPTS = Path(__file__).parent.parent / "prompts"
 
 
+JUNK_WORDS = ("invalid", "malformed", "wrong", "garbage", "junk")
+
+
 # ---------- cards ----------
 def card_id(c):
     tag = f"_{c['tag']}" if c.get("tag") else ""
@@ -103,6 +106,17 @@ def check_tests(code, card):
     if "assertRaises" in code and not re.search(r"rais|error|exception|fail|invalid", card["spec"], re.I):
         return ("the rule does not mention any error, so do not use assertRaises. Test only what the "
                 "rule says. Do not invent errors, messages or extra behaviour.")
+    spec_low = card["spec"].lower()
+    for m in methods:
+        for w in JUNK_WORDS:
+            if w in m.name.lower() and w not in spec_low:
+                return (f"{m.name} tests '{w}' input, but the rule never mentions that. Test only "
+                        "what the rule says; do not invent extra checks.")
+    for lit in re.findall(r"""["']([^"']*)["']""", code):
+        for w in JUNK_WORDS:
+            if w in lit.lower() and w not in spec_low and " " not in lit.strip():
+                return (f"the test uses the value '{lit}', an invalid input the rule never mentions. "
+                        "Test only what the rule says.")
     if card["kind"] == "service":
         imported = any(isinstance(n, ast.ImportFrom) and (n.module or "").endswith("services")
                        and any(a.name == card["name"] for a in n.names) for n in ast.walk(tree))
@@ -485,6 +499,11 @@ def run_card(ws, card, model=None, attempts=None, log=print):
         locked = _sha(tf)
         log(f"[{result['id']}] tests locked ({n_new}); writing code")
         res, state = phase_impl(ws, card, model, feedback)
+        if res["status"] == "done" and target.exists():
+            cleaned = codetools.drop_unused_new_imports(original or "", target.read_text())
+            if cleaned != target.read_text():
+                target.write_text(cleaned)
+                log(f"[{result['id']}] removed imports the code does not use")
         if res["status"] != "done":
             feedback = ("the code could not satisfy the tests. " + (state.get("last_fail") or "")
                         + " If a test asserts something the rule does not state, do not write that "
