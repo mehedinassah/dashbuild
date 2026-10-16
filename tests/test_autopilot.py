@@ -776,3 +776,53 @@ def test_unused_new_imports_are_removed_but_old_ones_stay():
 
 def test_impl_prompt_forbids_extras():
     assert "ONLY what the rule says" in (pipeline.PROMPTS / "card_impl.txt").read_text()
+
+
+# ---------- v13: broken tests are blamed, imports sent with the function are accepted ----------
+def test_split_imports_moves_imports_out_of_a_single_function():
+    imps, rest = codetools.split_imports("import datetime\nfrom decimal import Decimal\n\ndef f(x):\n    return Decimal(x)\n")
+    assert imps == ["import datetime", "from decimal import Decimal"] and rest.startswith("def f")
+    assert codetools.split_imports("def f():\n    pass\n") == ([], "def f():\n    pass\n")
+    two = "import os_x\ndef f():\n    pass\ndef g():\n    pass\n"
+    assert codetools.split_imports(two) == ([], two)
+
+
+def test_function_sent_with_its_imports_is_accepted(ws, monkeypatch):
+    impl = ("from decimal import Decimal\n\n"
+            "def line_total(self):\n    return self.product.price * self.quantity\n")
+    use(monkeypatch, Fake([GOOD_TESTS], [impl]))
+    r = pipeline.run_card(ws, CARD, "fake", log=quiet)
+    assert r["status"] == "passed", r["reason"]
+    src = (ws / "sales/models.py").read_text()
+    assert "def line_total" in src and "Decimal" not in src.split("class Product")[0].replace("DecimalField", "")
+
+
+def test_test_error_tells_a_broken_test_from_a_wrong_assertion(ws):
+    broken = GOOD_TESTS.replace('self.assertEqual(self.make("5.00", 3).line_total(), Decimal("15.00"))',
+                                'self.assertEqual(self.make("5.00", 3).quantity.strftime("%Y"), "x")')
+    (ws / "sales/test_x.py").write_text(broken)
+    out = pipeline.run_suite(ws)["output"]
+    te = pipeline.test_error(out, "line_total")
+    assert te and "strftime" in te[1] + te[2] and te[0] == "test_basic"
+    (ws / "sales/test_x.py").write_text(GOOD_TESTS)
+    assert pipeline.test_error(pipeline.run_suite(ws)["output"], "line_total") is None  # feature missing: not a test bug
+
+
+def test_attempt_is_aborted_when_the_locked_test_itself_crashes(ws, monkeypatch):
+    broken = GOOD_TESTS.replace('self.assertEqual(self.make("5.00", 3).line_total(), Decimal("15.00"))',
+                                'self.assertEqual(self.make("5.00", 3).quantity.strftime("%Y"), "x")')
+    impls = [f"def line_total(self):\n    # try {i}\n    return self.product.price * self.quantity\n"
+             for i in range(10)]
+    use(monkeypatch, Fake([broken], impls))
+    # the red check cannot see this: the test fails "for the right reason" because line_total is missing
+    # only if it fails with AssertionError, so craft the check to allow it by running through the pipeline
+    monkeypatch.setattr(pipeline, "classify_red", lambda *a: (True, ""))
+    r = pipeline.run_card(ws, CARD, "fake", attempts=1, log=quiet)
+    assert r["status"] == "failed" and "previous tests were wrong" in r["reason"]
+    assert "strftime" in r["reason"]
+    assert git_clean(ws)
+
+
+def test_card_tests_prompt_covers_dates():
+    txt = (pipeline.PROMPTS / "card_tests.txt").read_text()
+    assert "datetime.date" in txt and "strftime" in txt

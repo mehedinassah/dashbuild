@@ -190,3 +190,20 @@ def drop_unused_new_imports(original_src, new_src):
     except SyntaxError:
         return new_src
     return out
+
+
+def split_imports(code):
+    """'import x' lines sent together with ONE function -> ([import lines], the function alone).
+    Anything else is returned unchanged."""
+    text = textwrap.dedent(code).strip("\n")
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return [], code
+    imps = [n for n in tree.body if isinstance(n, (ast.Import, ast.ImportFrom))]
+    rest = [n for n in tree.body if n not in imps]
+    if not imps or len(rest) != 1 or not isinstance(rest[0], (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return [], code
+    lines = text.splitlines()
+    s, e = _span(rest[0])
+    return ["\n".join(lines[n.lineno - 1:n.end_lineno]) for n in imps], "\n".join(lines[s:e])

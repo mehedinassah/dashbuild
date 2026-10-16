@@ -176,6 +176,25 @@ def summarize(output, limit=1500):
     return "\n".join(lines)[:limit]
 
 
+def test_error(output, name=""):
+    """If the failing tests crash on a line of the TEST file itself (not an assertion, not inside the
+    code under test), return (test_name, error, line). The code cannot fix that: the test is wrong."""
+    found = None
+    for m in re.finditer(r"^(?:ERROR|FAIL): (\w+) \(.*?(?=^={10,}|\Z)", output, re.M | re.S):
+        block = m.group(0)
+        frames = re.findall(r'File "([^"]+)", line (\d+), in \w+\n\s+(.+)', block)
+        errs = [l.strip() for l in block.splitlines() if re.match(r"^[\w.]*(Error|Exception)\b", l.strip())]
+        if not frames or not errs or errs[-1].startswith("AssertionError"):
+            return None
+        if name and name in errs[-1]:
+            continue  # "the thing does not exist" is the code's job, not a broken test
+        path, _, text = frames[-1]
+        if not Path(path).name.startswith("test_"):
+            return None
+        found = (m.group(1), errs[-1][:160], text.strip()[:140])
+    return found
+
+
 def _missing(text, name):
     """The error is just 'the thing being built does not exist yet'."""
     return bool(re.search(rf"(AttributeError|ImportError|ModuleNotFoundError)[^\n]*"
@@ -339,16 +358,27 @@ def phase_impl(ws, card, model, feedback):
                     f"with an underscore), not '{fn.name}'")
         return None
 
+    def _with_imports(code, place):
+        """The model often sends 'import ...' lines together with the function. Accept that: Python
+        moves the imports to the top of the file and saves the function."""
+        imps, rest = codetools.split_imports(code)
+        for stmt in imps:
+            new, err = codetools.add_import(target.read_text(), stmt)
+            if err:
+                return "REJECTED: " + err
+            target.write_text(new)
+        err = _check_name(rest)
+        if err:
+            return "REJECTED: " + err
+        return _apply(*place(rest))
+
     def set_method(code: str) -> str:
         """Save the method for this card (replaces it if it exists). Send ONE complete method.
 
         Args:
             code: The complete method, starting with def and with self as the first argument.
         """
-        err = _check_name(code)
-        if err:
-            return "REJECTED: " + err
-        return _apply(*codetools.upsert_def(target.read_text(), code, cls))
+        return _with_imports(code, lambda c: codetools.upsert_def(target.read_text(), c, cls))
 
     def set_function(code: str) -> str:
         """Save the function for this card (replaces it if it exists). Send ONE complete function.
@@ -356,10 +386,7 @@ def phase_impl(ws, card, model, feedback):
         Args:
             code: The complete function, starting with def.
         """
-        err = _check_name(code)
-        if err:
-            return "REJECTED: " + err
-        return _apply(*codetools.upsert_def(target.read_text(), code))
+        return _with_imports(code, lambda c: codetools.upsert_def(target.read_text(), c))
 
     def add_import(statement: str) -> str:
         """Add one import line to the file, for example: from decimal import Decimal
@@ -377,6 +404,13 @@ def phase_impl(ws, card, model, feedback):
         if r["ok"]:
             return "OK, all tests pass. Reply DONE."
         out = summarize(r["output"])
+        te = test_error(r["output"], card["name"])
+        if te:
+            k = state.setdefault("test_errs", {})
+            k[te] = k.get(te, 0) + 1
+            if k[te] >= 4:
+                state["abort"] = ("the locked test itself crashes: " + te[1] + " on its line `" + te[2] +
+                                  "` (" + te[0] + "). Write tests that do not do that")
         seen = state.setdefault("fail_counts", {})
         seen[out] = seen.get(out, 0) + 1
         if seen[out] >= 2:
@@ -504,6 +538,9 @@ def run_card(ws, card, model=None, attempts=None, log=print):
             if cleaned != target.read_text():
                 target.write_text(cleaned)
                 log(f"[{result['id']}] removed imports the code does not use")
+        if state.get("abort"):
+            feedback = "the previous tests were wrong: " + state["abort"]
+            continue
         if res["status"] != "done":
             feedback = ("the code could not satisfy the tests. " + (state.get("last_fail") or "")
                         + " If a test asserts something the rule does not state, do not write that "

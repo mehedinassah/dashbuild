@@ -24,5 +24,9 @@ Rules for the test file:
   A short FIRST item cannot show whether earlier items were already changed.
 - When the rule is about the rows that belong to ONE customer / sale / product, also create a second one
   with its own rows and check that the second one's rows are not counted for the first.
+- Dates: pass datetime.date(2023, 10, 5) objects (import datetime), never text. Compare values directly,
+  for example self.assertEqual(sale.date, datetime.date(2023, 10, 5)). Never call .strftime or other
+  methods on a returned value to compare it. To check what was saved, re-load it from the database
+  with Model.objects.get(...) first.
 - Do not test negative numbers or other invalid input unless the rule itself talks about them.
 - Do NOT write the feature itself. The tests must fail now because it does not exist yet.

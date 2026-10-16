@@ -34,6 +34,9 @@ def run_worker(*, model, system, task, tools, state,
     recent = []
 
     for step in range(1, max_steps + 1):
+        if state.get("abort"):
+            print("CONTROLLER: giving up this attempt:", str(state["abort"])[:200])
+            return {"status": "aborted", "steps": step - 1, "files": sorted(state["written"])}
         print(f"\n--- step {step} ---")
         resp = chat(model=model, messages=messages, tools=tools,
                     options={"num_ctx": num_ctx, "temperature": CFG["temperature"],
