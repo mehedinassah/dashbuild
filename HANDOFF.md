@@ -67,3 +67,17 @@ cd ~ && tar czf ai-workforce-backup-$(date +%F).tar.gz --exclude=.venv --exclude
   product in one sale can pass the stock check separately. Rules written by a person work much better
   than rules proposed by the model.
 - Next: let the model draft cards from one plain sentence, validated by Python, approved by the user.
+
+## Status 2026-10-16
+- Autopilot v13 installed (79 tests pass in tests/). CRM suite: 59 tests pass.
+- New since the last status: ./wfa plan "one sentence" drafts cards (you keep/drop/edit each, then
+  ./wfa auto --cards cards_plan.json --no-design). Cards built: Customer.notes, Customer.is_active
+  (field cards with migrations) and create_sale (refuses inactive customers).
+- Pipeline guards added: tests for inputs the rule never mentions are bounced; unused imports the model
+  adds are removed; imports sent with a function are moved by Python; a locked test that crashes on its
+  own line makes the attempt give up and rewrite the tests; 12-minute budget per card.
+- Lesson: read every model-drafted card. Its plan put a rule in a method nothing called; a service
+  function (create_sale) was the right place. Rules written by a person stay better than drafted ones.
+- Known gaps: create_sale is not used by anything yet (no views/forms); no transactions around
+  confirm_sale / cancel_sale; the model cannot create a whole new model/app yet.
+- Next: views and forms for sales and customers, then the same for products.
