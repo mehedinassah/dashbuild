@@ -1,5 +1,7 @@
 """Business logic functions."""
 from products.services import reduce_stock
+from sales.models import Sale
+from decimal import Decimal
 
 
 def confirm_sale(sale):
@@ -38,3 +40,10 @@ def cancel_sale(sale):
     # Set the sale as unconfirmed
     sale.confirmed = False
     sale.save()
+
+
+def create_sale(customer, number, date):
+    if not customer.is_active:
+        raise ValueError("Customer is not active")
+    sale = Sale.objects.create(number=number, date=date, customer=customer, total=Decimal('0.00'))
+    return sale
