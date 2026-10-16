@@ -13,3 +13,4 @@ autopilot_state.json
 scorecard.json
 .autopilot/
 .autopilot-install-backup-*/
+workspace_crm/db.sqlite3.backup-*

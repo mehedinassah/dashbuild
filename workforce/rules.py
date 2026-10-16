@@ -6,8 +6,8 @@ from pathlib import Path
 
 from ollama import chat
 
+from . import fields, ui
 from .config import CFG
-from . import fields
 from .notes import project_map, scan
 from .pipeline import PROMPTS, card_id
 from .pipeline import test_file as pipeline_test_file
@@ -28,9 +28,10 @@ def validate_cards(ws, cards):
             problems.append(f"{tag}: must be an object")
             continue
         c = {k: (str(c.get(k) or "")).strip() for k in
-             ("app", "kind", "class", "name", "spec", "mode", "tag", "definition")}
-        if c["kind"] not in ("model", "service", "field"):
-            problems.append(f"{tag}: kind must be 'model', 'service' or 'field'")
+             ("app", "kind", "class", "name", "spec", "mode", "tag", "definition",
+              "url", "button", "show_if", "url_name")}
+        if c["kind"] not in ("model", "service", "field", "view"):
+            problems.append(f"{tag}: kind must be 'model', 'service', 'field' or 'view'")
             continue
         if c["app"] not in apps:
             problems.append(f"{tag}: app '{c['app']}' does not exist (apps: {', '.join(apps)})")
@@ -50,6 +51,30 @@ def validate_cards(ws, cards):
                 problems.append(f"{tag}: '{c['name']}' already exists on {c['class']}")
                 continue
             bad = fields.check_definition(c["definition"])
+            if bad:
+                problems.append(f"{tag}: {bad}")
+                continue
+            c["mode"] = c["tag"] = ""
+        elif c["kind"] == "view":
+            bad = ui.check_view_card(c)
+            vp, up = ws / c["app"] / "views.py", ws / c["app"] / "urls.py"
+            if not bad and not (vp.exists() and up.exists()):
+                bad = f"{c['app']} has no views.py or urls.py"
+            if not bad:
+                vsrc, usrc = vp.read_text(), up.read_text()
+                if c["class"]:
+                    cls = next((n for n in ast.parse(vsrc).body
+                                if isinstance(n, ast.ClassDef) and n.name == c["class"]), None)
+                    if cls is None:
+                        bad = f"class {c['class']} not found in {c['app']}/views.py"
+                    elif c["name"] in [m.name for m in cls.body if isinstance(m, ast.FunctionDef)]:
+                        bad = f"{c['class']} already has a method {c['name']}"
+                    else:
+                        app_, name_ = c["url_name"].split(":")
+                        if app_ == c["app"] and f'name="{name_}"' not in usrc:
+                            bad = f"{c['app']}/urls.py has no route named {name_}"
+                elif f"def {c['name']}(" in vsrc or f'name="{c["name"]}"' in usrc:
+                    bad = f"'{c['name']}' already exists in {c['app']}"
             if bad:
                 problems.append(f"{tag}: {bad}")
                 continue

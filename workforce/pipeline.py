@@ -14,7 +14,7 @@ import textwrap
 import time
 from pathlib import Path
 
-from . import codetools, mutation
+from . import codetools, mutation, ui
 from .config import CFG
 from .notes import project_map
 from .tools import python_problem, undefined_names
@@ -38,7 +38,8 @@ def test_file(ws, c):
 
 
 def target_file(ws, c):
-    return Path(ws) / c["app"] / ("models.py" if c["kind"] == "model" else "services.py")
+    name = {"model": "models.py", "view": "views.py"}.get(c["kind"], "services.py")
+    return Path(ws) / c["app"] / name
 
 
 # ---------- running tests ----------
@@ -101,9 +102,13 @@ def check_tests(code, card):
             and x.func.attr.startswith("assert")) for x in ast.walk(m))
         if not has_assert:
             return f"{m.name} does not check anything. Add an assertEqual with an exact expected value"
-    if card["name"] not in code:
+    if card["kind"] == "view":
+        bad = _check_view_tests(code, card)
+        if bad:
+            return bad
+    elif card["name"] not in code:
         return f"the tests never mention '{card['name']}'"
-    if "assertRaises" in code and not re.search(r"rais|error|exception|fail|invalid", card["spec"], re.I):
+    if "assertRaises" in code and card["kind"] != "view" and not re.search(r"rais|error|exception|fail|invalid", card["spec"], re.I):
         return ("the rule does not mention any error, so do not use assertRaises. Test only what the "
                 "rule says. Do not invent errors, messages or extra behaviour.")
     spec_low = card["spec"].lower()
@@ -141,6 +146,20 @@ def check_tests(code, card):
     return None
 
 
+def _check_view_tests(code, card):
+    expected = card.get("url_name") or f"{card['app']}:{card['name']}"
+    if "self.client" not in code:
+        return "call the page through the test client, for example self.client.post(reverse('app:name', args=[obj.pk]))"
+    if "reverse(" not in code:
+        return "get the address with reverse('app:name'), never type the URL by hand"
+    if expected not in code:
+        return f"the tests must call reverse('{expected}')"
+    if "assertRaises" in code:
+        return ("a view does not raise errors to the user. Test the response instead: status code, "
+                "redirect, the saved data and the messages")
+    return None
+
+
 def count_tests(code):
     tree = ast.parse(code)
     return sum(1 for c in tree.body if isinstance(c, ast.ClassDef)
@@ -152,7 +171,7 @@ def failing_tests(output):
     out = []
     for m in re.finditer(r"^(?:ERROR|FAIL): (\w+) \(.*?(?=^={10,}|\Z)", output, re.M | re.S):
         block = m.group(0)
-        errs = [l.strip() for l in block.splitlines() if re.match(r"^[\w.]*(Error|Exception)\b", l.strip())
+        errs = [l.strip() for l in block.splitlines() if re.match(r"^[\w.]*(Error|Exception|NoReverseMatch)\b", l.strip())
                 or l.strip().startswith("AssertionError")]
         out.append((m.group(1), (errs[-1] if errs else "failed")[:220]))
     return out
@@ -183,7 +202,7 @@ def test_error(output, name=""):
     for m in re.finditer(r"^(?:ERROR|FAIL): (\w+) \(.*?(?=^={10,}|\Z)", output, re.M | re.S):
         block = m.group(0)
         frames = re.findall(r'File "([^"]+)", line (\d+), in \w+\n\s+(.+)', block)
-        errs = [l.strip() for l in block.splitlines() if re.match(r"^[\w.]*(Error|Exception)\b", l.strip())]
+        errs = [l.strip() for l in block.splitlines() if re.match(r"^[\w.]*(Error|Exception|NoReverseMatch)\b", l.strip())]
         if not frames or not errs or errs[-1].startswith("AssertionError"):
             return None
         if name and name in errs[-1]:
@@ -198,7 +217,8 @@ def test_error(output, name=""):
 def _missing(text, name):
     """The error is just 'the thing being built does not exist yet'."""
     return bool(re.search(rf"(AttributeError|ImportError|ModuleNotFoundError)[^\n]*"
-                          rf"({re.escape(name)}|\.services)", text))
+                          rf"({re.escape(name)}|\.services)", text)
+                or re.search(rf"NoReverseMatch[^\n]*{re.escape(name)}", text))
 
 
 def classify_red(output, ok, name):
@@ -223,7 +243,7 @@ def classify_red(output, ok, name):
 
 
 def _last_error(output):
-    errs = [l for l in output.splitlines() if re.match(r"\w*(Error|Exception)\b", l)]
+    errs = [l for l in output.splitlines() if re.match(r"\w*(Error|Exception|NoReverseMatch)\b", l)]
     return errs[-1][:200] if errs else output[-200:]
 
 
@@ -233,6 +253,8 @@ def _sha(p):
 
 def kind_note(card):
     n = card["name"]
+    if card["kind"] == "view":
+        return _view_note(card)
     if card["kind"] == "model":
         return (f"\nThe feature is a METHOD of {card['class']}. Tests call it with parentheses, for "
                 f"example obj.{n}(). Never write obj.{n} without parentheses. In your code write a "
@@ -255,6 +277,22 @@ def current_source(ws, card):
     return textwrap.dedent("\n".join(src.splitlines()[s:e]))
 
 
+def view_source(ws, card):
+    """For a card that adds a method to a view class: the class and its FIELDS, so the model sees which
+    form fields exist and which model the form saves."""
+    if card.get("kind") != "view" or not card.get("class"):
+        return ""
+    src = target_file(ws, card).read_text()
+    tree = ast.parse(src)
+    parts = []
+    for n in tree.body:
+        if isinstance(n, ast.Assign) and any(getattr(t, "id", "") == "FIELDS" for t in n.targets):
+            parts.append(ast.get_source_segment(src, n))
+        if isinstance(n, ast.ClassDef) and n.name == card["class"]:
+            parts.append(ast.get_source_segment(src, n))
+    return "\nThe view code today (views.py):\n" + "\n\n".join(p for p in parts if p) + "\n"
+
+
 def change_note(ws, card, phase):
     if card.get("mode") != "change":
         return ""
@@ -266,6 +304,27 @@ def change_note(ws, card, phase):
         how = ("Send the complete new version of this function: keep everything it does today and "
                "add the new behaviour. The old tests must keep passing too.")
     return f"\nThis card CHANGES an existing function. Its current code is:\n{cur}\n{how}\n"
+
+
+def _view_note(card):
+    base = ("\nThe feature is part of a Django VIEW in {app}/views.py. Test it ONLY through the test client "
+            "and reverse(...). To read messages shown to the user use: "
+            "from django.contrib.messages import get_messages ; "
+            "msgs = [str(m) for m in get_messages(response.wsgi_request)]. "
+            "A redirect is checked with self.assertRedirects(response, reverse('app:list')).\n").format(app=card["app"])
+    if card.get("class"):
+        return base + (f"It is the method {card['name']}(self, ...) of the existing class {card['class']}. "
+                       f"Tests call the page with reverse('{card['url_name']}'). Send form data with "
+                       "self.client.post(url, {...}); a form that is shown again has status 200 and "
+                       "response.context['form'].errors. Write ONE method with self as first argument.\n")
+    return base + (f"It is a plain FUNCTION view {card['name']}(request, pk) (no class). Tests call it with "
+                   f"reverse('{card['app']}:{card['name']}', args=[obj.pk]). "
+                   "In your code: from django.contrib import messages ; "
+                   "from django.shortcuts import get_object_or_404, redirect ; "
+                   "from django.views.decorators.http import require_POST ; decorate the view with "
+                   "@require_POST (so a GET gives status 405); on success call messages.success(request, ...); "
+                   "when the service raises ValueError call messages.error(request, str(e)); "
+                   "always redirect (redirect('app:list')).\n")
 
 
 def _prompt(name, card=None):
@@ -306,7 +365,7 @@ def phase_tests(ws, card, model, feedback):
 
     task = (f"Card: {card['kind']} {card.get('class') or ''}.{card['name']}\n"
             f"Rule: {card['spec']}\n\nProject:\n{project_map(ws)}\n"
-            + change_note(ws, card, "tests"))
+            + change_note(ws, card, "tests") + view_source(ws, card))
     if feedback:
         task += f"\nLast attempt failed because: {feedback}\n"
     res = run_worker(model=model, system=_prompt("card_tests.txt", card), task=task,
@@ -342,6 +401,11 @@ def phase_impl(ws, card, model, feedback):
     def _apply(new, err):
         if err:
             return "REJECTED: " + err
+        if card["kind"] == "view" and not cls and \
+                codetools.find_def(ast.parse(new), card["name"]) is not None:
+            bad = ui.wire_url(ws, card["app"], card["url"], card["name"])
+            if bad:
+                return "REJECTED: " + bad
         target.write_text(new)
         state["written"].add(str(target))
         state["tests_passed"] = False
@@ -423,7 +487,7 @@ def phase_impl(ws, card, model, feedback):
     tests_src = test_file(ws, card).read_text()
     task = (f"Card: {card['kind']} {cls or ''}.{card['name']}\nRule: {card['spec']}\n\n"
             f"Project:\n{project_map(ws)}\n\nLocked tests that must pass:\n{tests_src}\n"
-            + change_note(ws, card, "impl"))
+            + change_note(ws, card, "impl") + view_source(ws, card))
     if feedback:
         task += f"\nLast attempt failed because: {feedback}\n"
     res = run_worker(model=model, system=_prompt("card_impl.txt", card), task=task, tools=tools,
@@ -511,6 +575,12 @@ def run_card(ws, card, model=None, attempts=None, log=print):
         result["reason"] = "the existing tests are not green, fix them first:\n" + base["output"][-600:]
         return result
     original = target.read_text() if target.exists() else None
+    urls_py = Path(ws) / card["app"] / "urls.py"
+    urls_original = urls_py.read_text() if urls_py.exists() else None
+
+    def restore_urls():
+        if urls_original is not None and urls_py.exists():
+            urls_py.write_text(urls_original)
     feedback = ""
     budget = CFG.get("card_minutes", 12) * 60
     for n in range(1, attempts + 1):
@@ -526,6 +596,7 @@ def run_card(ws, card, model=None, attempts=None, log=print):
             target.unlink(missing_ok=True)
         else:
             target.write_text(original)
+        restore_urls()
         n_new, why = phase_tests(ws, card, model, feedback)
         if why:
             feedback = why
@@ -548,9 +619,21 @@ def run_card(ws, card, model=None, attempts=None, log=print):
             continue
         ok, why, rate = gates(ws, card, locked, n_new, base["ran"], state)
         result["kill_rate"] = rate
+        if ok and card["kind"] == "view":
+            changed = ui.apply(ws, card)
+            if changed:
+                chk = run_suite(ws)
+                if not chk["ok"]:
+                    for path, text in changed.items():
+                        path.write_text(text)
+                    ok, why = False, "the pages stopped working after wiring them:\n" + summarize(chk["output"], 600)
         if ok:
-            result.update(status="passed", reason="", files=[
-                str(target.relative_to(ws)), str(tf.relative_to(ws))])
+            files = [str(target.relative_to(ws)), str(tf.relative_to(ws))]
+            if card["kind"] == "view":
+                if urls_original is not None and urls_py.read_text() != urls_original:
+                    files.append(str(urls_py.relative_to(ws)))
+                files += [str(p.relative_to(ws)) for p in changed]
+            result.update(status="passed", reason="", files=files)
             result["seconds"] = round(time.time() - t0)
             return result
         feedback = why
@@ -565,6 +648,7 @@ def run_card(ws, card, model=None, attempts=None, log=print):
         target.unlink(missing_ok=True)
     else:
         target.write_text(original)
+    restore_urls()
     result["reason"] = feedback
     result["seconds"] = round(time.time() - t0)
     return result

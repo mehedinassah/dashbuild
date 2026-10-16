@@ -16,7 +16,18 @@ if __name__ == "__main__":
 BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = "bench"
 DEBUG = True
-INSTALLED_APPS = ["django.contrib.contenttypes", "django.contrib.auth", "sales"]
+INSTALLED_APPS = ["django.contrib.contenttypes", "django.contrib.auth", "django.contrib.sessions",
+                  "django.contrib.messages", "core", "sales"]
+MIDDLEWARE = ["django.contrib.sessions.middleware.SessionMiddleware",
+              "django.middleware.common.CommonMiddleware",
+              "django.middleware.csrf.CsrfViewMiddleware",
+              "django.contrib.auth.middleware.AuthenticationMiddleware",
+              "django.contrib.messages.middleware.MessageMiddleware"]
+ROOT_URLCONF = "config.urls"
+TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIRS": [], "APP_DIRS": True,
+              "OPTIONS": {"context_processors": ["django.template.context_processors.request",
+                                                  "django.contrib.auth.context_processors.auth",
+                                                  "django.contrib.messages.context_processors.messages"]}}]
 DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}}
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 USE_TZ = True
@@ -49,6 +60,63 @@ class SmokeTest(TestCase):
         p = Product.objects.create(name="x", price="1.00", stock=1)
         self.assertEqual(Product.objects.count(), 1)
         self.assertEqual(p.name, "x")
+''',
+    "config/urls.py": '''from django.urls import include, path
+
+urlpatterns = [path("sales/", include("sales.urls"))]
+''',
+    "core/__init__.py": "",
+    "core/templates/core/base.html": '''<!doctype html>
+<html>
+<head>
+  <title>{% block title %}My CRM{% endblock %}</title>
+  <style>
+    body{margin:0}
+  </style>
+</head>
+<body>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
+''',
+    "sales/urls.py": '''from django.urls import path
+
+from . import views
+
+app_name = "sales"
+
+urlpatterns = [
+    path("", views.SaleListView.as_view(), name="list"),
+]
+''',
+    "sales/views.py": '''from django.views.generic import ListView
+
+from .models import Sale
+
+
+class SaleListView(ListView):
+    model = Sale
+    template_name = "sales/list.html"
+    context_object_name = "items"
+''',
+    "sales/templates/sales/base.html": '''{% extends "core/base.html" %}
+{% block title %}Sales{% endblock %}
+''',
+    "sales/templates/sales/list.html": '''{% extends "sales/base.html" %}
+{% block content %}
+<h1>Sales</h1>
+<table>
+  <tbody>
+  {% for item in items %}
+    <tr><td>{{ item.customer_name }}</td><td class="actions"><a href="#">Edit</a></td></tr>
+  {% empty %}
+    <tr><td>Nothing here yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
 ''',
     ".workforce.json": json.dumps({"test_cmd": ["python", "manage.py", "test"], "commands": []}),
     ".gitignore": "db.sqlite3\n__pycache__/\n*.pyc\n",

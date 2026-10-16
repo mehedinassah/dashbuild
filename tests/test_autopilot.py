@@ -826,3 +826,262 @@ def test_attempt_is_aborted_when_the_locked_test_itself_crashes(ws, monkeypatch)
 def test_card_tests_prompt_covers_dates():
     txt = (pipeline.PROMPTS / "card_tests.txt").read_text()
     assert "datetime.date" in txt and "strftime" in txt
+
+
+# ---------- v14: view cards ----------
+from workforce import ui  # noqa: E402
+
+SHIP_SERVICE = '''"""Business logic functions."""
+
+
+def ship_sale(sale):
+    items = list(sale.saleitem_set.all())
+    for it in items:
+        if it.quantity > it.product.stock:
+            raise ValueError("Not enough stock")
+    for it in items:
+        it.product.stock -= it.quantity
+        it.product.save()
+'''
+
+VIEW_CARD = {"app": "sales", "kind": "view", "class": "", "name": "ship_sale_view", "url": "<int:pk>/ship/",
+             "button": "Ship", "show_if": "item.customer_name",
+             "spec": "ship_sale_view(request, pk) ships the sale with ship_sale. A ValueError from it is shown "
+                     "as an error message and nothing changes. Success shows 'Sale shipped.' Always redirect "
+                     "to sales:list. Only POST is allowed."}
+
+VIEW_TESTS = '''
+from django.contrib.messages import get_messages
+from django.test import TestCase
+from django.urls import reverse
+from sales.models import Product, Sale, SaleItem
+
+
+class ShipSaleViewTests(TestCase):
+    def make(self, stock, qty):
+        sale = Sale.objects.create(customer_name="A")
+        product = Product.objects.create(name="p", price="1.00", stock=stock)
+        SaleItem.objects.create(sale=sale, product=product, quantity=qty)
+        return sale, product
+
+    def test_ships_and_redirects(self):
+        sale, product = self.make(5, 2)
+        r = self.client.post(reverse("sales:ship_sale_view", args=[sale.pk]))
+        self.assertRedirects(r, reverse("sales:list"))
+        product.refresh_from_db()
+        self.assertEqual(product.stock, 3)
+        self.assertEqual([str(m) for m in get_messages(r.wsgi_request)], ["Sale shipped."])
+
+    def test_not_enough_stock_shows_the_error(self):
+        sale, product = self.make(1, 2)
+        r = self.client.post(reverse("sales:ship_sale_view", args=[sale.pk]))
+        self.assertRedirects(r, reverse("sales:list"))
+        product.refresh_from_db()
+        self.assertEqual(product.stock, 1)
+        self.assertEqual([str(m) for m in get_messages(r.wsgi_request)], ["Not enough stock"])
+
+    def test_get_is_refused(self):
+        sale, product = self.make(5, 2)
+        r = self.client.get(reverse("sales:ship_sale_view", args=[sale.pk]))
+        self.assertEqual(r.status_code, 405)
+        product.refresh_from_db()
+        self.assertEqual(product.stock, 5)
+'''
+
+VIEW_IMPL = '''from django.contrib import messages
+from django.shortcuts import get_object_or_404, redirect
+from django.views.decorators.http import require_POST
+from .services import ship_sale
+
+
+@require_POST
+def ship_sale_view(request, pk):
+    sale = get_object_or_404(Sale, pk=pk)
+    try:
+        ship_sale(sale)
+    except ValueError as e:
+        messages.error(request, str(e))
+    else:
+        messages.success(request, "Sale shipped.")
+    return redirect("sales:list")
+'''
+
+
+def _commit_all(ws, msg="base"):
+    subprocess.run(["git", "add", "-A"], cwd=ws, check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", msg], cwd=ws, check=True)
+
+
+def test_view_card_check_rules():
+    assert ui.check_view_card(VIEW_CARD) is None
+    assert "url" in ui.check_view_card(dict(VIEW_CARD, url="/ship/"))
+    assert "url" in ui.check_view_card(dict(VIEW_CARD, url="ship"))
+    assert "button" in ui.check_view_card(dict(VIEW_CARD, button="<b>x</b>"))
+    assert "show_if" in ui.check_view_card(dict(VIEW_CARD, show_if="__import__('os')"))
+    assert "pk" in ui.check_view_card(dict(VIEW_CARD, url="export/"))
+    assert "url_name" in ui.check_view_card({"class": "X", "url_name": ""})
+    assert ui.check_view_card({"class": "X", "url_name": "sales:create"}) is None
+
+
+def test_wire_url_messages_and_button_are_idempotent(ws):
+    assert ui.wire_url(ws, "sales", "<int:pk>/ship/", "ship_sale_view") is None
+    assert ui.wire_url(ws, "sales", "<int:pk>/ship/", "ship_sale_view") is None
+    urls = (ws / "sales/urls.py").read_text()
+    assert urls.count("ship_sale_view") == 2 and 'path("<int:pk>/ship/", views.ship_sale_view' in urls
+    ch = ui.ensure_messages_block(ws)
+    assert len(ch) == 1 and ui.ensure_messages_block(ws) == {}
+    base = (ws / "core/templates/core/base.html").read_text()
+    assert base.index('class="messages"') < base.index("{% block content %}") and ".message.error" in base
+    ch = ui.add_row_button(ws, "sales", "ship_sale_view", "Ship", "not item.shipped")
+    assert len(ch) == 1 and ui.add_row_button(ws, "sales", "ship_sale_view", "Ship") == {}
+    lst = (ws / "sales/templates/sales/list.html").read_text()
+    assert "{% if not item.shipped %}" in lst and "{% csrf_token %}" in lst and ">Ship<" in lst
+
+
+def test_view_card_end_to_end_with_button_and_messages(ws, monkeypatch):
+    (ws / "sales/services.py").write_text(SHIP_SERVICE)
+    _commit_all(ws)
+    use(monkeypatch, Fake([VIEW_TESTS], [VIEW_IMPL]))
+    r = pipeline.run_card(ws, VIEW_CARD, "fake", log=quiet)
+    assert r["status"] == "passed", r["reason"]
+    assert set(r["files"]) >= {"sales/views.py", "sales/urls.py", "sales/test_func_ship_sale_view.py",
+                               "sales/templates/sales/list.html", "core/templates/core/base.html"}
+    from django.test.utils import override_settings  # noqa: F401  (the suite itself renders the pages)
+    sale_check = '''
+from django.test import TestCase
+from django.urls import reverse
+from sales.models import Sale
+
+
+class PagesTests(TestCase):
+    def test_list_shows_button_and_message(self):
+        sale = Sale.objects.create(customer_name="A")
+        r = self.client.post(reverse("sales:ship_sale_view", args=[sale.pk]), follow=True)
+        self.assertContains(r, "Sale shipped.")
+        self.assertContains(r, ">Ship<")
+        self.assertContains(r, 'class="message success"')
+'''
+    (ws / "sales/test_pages_tmp.py").write_text(sale_check)
+    out = pipeline.run_suite(ws)
+    assert out["ok"], out["output"][-800:]
+
+
+def test_view_card_failure_restores_urls_and_templates(ws, monkeypatch):
+    (ws / "sales/services.py").write_text(SHIP_SERVICE)
+    _commit_all(ws)
+    wrong = VIEW_IMPL.replace('messages.success(request, "Sale shipped.")', 'messages.success(request, "Done")')
+    use(monkeypatch, Fake([VIEW_TESTS] * 3, [wrong] * 3))
+    r = pipeline.run_card(ws, VIEW_CARD, "fake", attempts=1, log=quiet)
+    assert r["status"] == "failed"
+    assert git_clean(ws)
+
+
+def test_view_tests_must_use_the_client_and_reverse(ws):
+    card = dict(VIEW_CARD)
+    no_client = "from django.test import TestCase\n\nclass T(TestCase):\n    def test_x(self):\n        self.assertTrue(True)\n"
+    assert "test client" in pipeline.check_tests(no_client, card)
+    raising = VIEW_TESTS.replace("self.assertEqual(r.status_code, 405)",
+                                 "with self.assertRaises(ValueError):\n            pass")
+    assert "does not raise" in pipeline.check_tests(raising, card)
+    wrong_name = VIEW_TESTS.replace("sales:ship_sale_view", "sales:other")
+    assert "must call reverse" in pipeline.check_tests(wrong_name, card)
+    assert pipeline.check_tests(VIEW_TESTS, card) is None
+
+
+def _add_create_view(ws):
+    with open(ws / "sales/views.py", "a") as f:
+        f.write('''
+
+class SaleCreateView(CreateView):
+    model = Sale
+    fields = ["customer_name"]
+    template_name = "sales/form.html"
+    success_url = reverse_lazy("sales:list")
+''')
+    src = (ws / "sales/views.py").read_text().replace(
+        "from django.views.generic import ListView",
+        "from django.urls import reverse_lazy\nfrom django.views.generic import CreateView, ListView")
+    (ws / "sales/views.py").write_text(src)
+    u = (ws / "sales/urls.py").read_text().replace(
+        '    path("", views.SaleListView.as_view(), name="list"),',
+        '    path("", views.SaleListView.as_view(), name="list"),\n    path("new/", views.SaleCreateView.as_view(), name="create"),')
+    (ws / "sales/urls.py").write_text(u)
+    (ws / "sales/templates/sales/form.html").write_text(
+        '{% extends "sales/base.html" %}{% block content %}<form method="post">{% csrf_token %}'
+        '{{ form.as_p }}<button>Save</button></form>{% endblock %}\n')
+
+
+CLASS_CARD = {"app": "sales", "kind": "view", "class": "SaleCreateView", "name": "form_valid",
+              "url_name": "sales:create",
+              "spec": "form_valid refuses a customer_name of 'blocked': it adds the error 'Customer is blocked' "
+                      "to the form, shows the form again and creates no Sale. Any other name is saved and the "
+                      "page redirects to sales:list."}
+
+CLASS_TESTS = '''
+from django.test import TestCase
+from django.urls import reverse
+from sales.models import Sale
+
+
+class SaleCreateFormTests(TestCase):
+    def test_blocked_name_is_refused(self):
+        r = self.client.post(reverse("sales:create"), {"customer_name": "blocked"})
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("Customer is blocked", r.context["form"].non_field_errors())
+        self.assertEqual(Sale.objects.count(), 0)
+
+    def test_other_name_is_saved(self):
+        r = self.client.post(reverse("sales:create"), {"customer_name": "Ann"})
+        self.assertRedirects(r, reverse("sales:list"))
+        self.assertEqual(Sale.objects.get().customer_name, "Ann")
+
+    def test_name_blocked_with_other_case_is_saved(self):
+        r = self.client.post(reverse("sales:create"), {"customer_name": "Blocked"})
+        self.assertRedirects(r, reverse("sales:list"))
+        self.assertEqual(Sale.objects.filter(customer_name="Blocked").count(), 1)
+'''
+
+CLASS_IMPL = '''def form_valid(self, form):
+    if form.cleaned_data["customer_name"] == "blocked":
+        form.add_error(None, "Customer is blocked")
+        return self.form_invalid(form)
+    return super().form_valid(form)
+'''
+
+
+def test_view_card_adds_a_method_to_an_existing_view_class(ws, monkeypatch):
+    _add_create_view(ws)
+    _commit_all(ws)
+    ok, problems = rules_mod.validate_cards(ws, [CLASS_CARD])
+    assert len(ok) == 1 and not problems
+    use(monkeypatch, Fake([CLASS_TESTS], [CLASS_IMPL]))
+    r = pipeline.run_card(ws, CLASS_CARD, "fake", log=quiet)
+    assert r["status"] == "passed", r["reason"]
+    src = (ws / "sales/views.py").read_text()
+    assert "def form_valid" in src and src.index("class SaleCreateView") < src.index("def form_valid")
+    assert "sales/urls.py" not in r["files"]  # an existing route: nothing to wire
+
+
+def test_validate_view_cards(ws):
+    _add_create_view(ws)
+    bad = [dict(CLASS_CARD, **{"class": "Ghost"}), dict(CLASS_CARD, url_name="sales:ghost"),
+           dict(CLASS_CARD, name="get_success_url", url_name=""), dict(VIEW_CARD, url="ship"),
+           dict(VIEW_CARD, name="SaleListView")]
+    ok, problems = rules_mod.validate_cards(ws, [VIEW_CARD, CLASS_CARD] + bad)
+    assert [c["name"] for c in ok] == ["ship_sale_view", "form_valid"] and len(problems) == len(bad)
+
+
+def test_view_class_source_is_shown_to_the_model(ws, monkeypatch):
+    _add_create_view(ws)
+    _commit_all(ws)
+    seen = []
+    fake = Fake([CLASS_TESTS], [CLASS_IMPL])
+    real = fake.__call__
+
+    def spy(**kw):
+        seen.append(kw["messages"][1]["content"])
+        return real(**kw)
+    use(monkeypatch, spy)
+    r = pipeline.run_card(ws, CLASS_CARD, "fake", log=quiet)
+    assert r["status"] == "passed", r["reason"]
+    assert all("class SaleCreateView(CreateView)" in m and "fields = " in m for m in seen)
