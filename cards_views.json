@@ -1,0 +1,32 @@
+{
+ "cards": [
+  {
+   "app": "sales",
+   "kind": "view",
+   "class": "",
+   "name": "confirm_sale_view",
+   "url": "<int:pk>/confirm/",
+   "button": "Confirm",
+   "show_if": "not item.confirmed",
+   "spec": "confirm_sale_view(request, pk) confirms the sale with that pk by calling confirm_sale(sale), imported from sales.services. If confirm_sale raises ValueError, show the error text with messages.error and change nothing. On success show the message 'Sale confirmed.' Always redirect to sales:list. Only POST is allowed."
+  },
+  {
+   "app": "sales",
+   "kind": "view",
+   "class": "",
+   "name": "cancel_sale_view",
+   "url": "<int:pk>/cancel/",
+   "button": "Cancel",
+   "show_if": "item.confirmed",
+   "spec": "cancel_sale_view(request, pk) cancels the sale with that pk by calling cancel_sale(sale), imported from sales.services. If cancel_sale raises ValueError, show the error text with messages.error and change nothing. On success show the message 'Sale cancelled.' Always redirect to sales:list. Only POST is allowed."
+  },
+  {
+   "app": "sales",
+   "kind": "view",
+   "class": "SaleCreateView",
+   "name": "form_valid",
+   "url_name": "sales:create",
+   "spec": "form_valid(self, form) creates the sale by calling create_sale(customer, number, date), imported from sales.services, with form.cleaned_data customer, number and date. If create_sale raises ValueError, add its text to the form with form.add_error(None, str(e)) and return self.form_invalid(form), so the form is shown again and no Sale is created. On success redirect to sales:list."
+  }
+ ]
+}
