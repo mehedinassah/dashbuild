@@ -154,9 +154,12 @@ def _check_view_tests(code, card):
         return "get the address with reverse('app:name'), never type the URL by hand"
     if expected not in code:
         return f"the tests must call reverse('{expected}')"
-    if re.search(r"\bmock\b|\bpatch\b|MagicMock|monkeypatch", code):
+    if re.search(r"mock|patch", code, re.I):
         return ("do not mock or patch anything. Create real rows in the test database and let the real "
                 "service run")
+    if card.get("class") and "get_messages" in code and "messages" not in card.get("spec", "").lower():
+        return ("this rule shows errors on the FORM, not as messages. Check "
+                "response.context['form'].non_field_errors(), not get_messages")
     if "assertRaises" in code:
         return ("a view does not raise errors to the user. Test the response instead: status code, "
                 "redirect, the saved data and the messages")
@@ -366,6 +369,15 @@ For a form view, post EVERY field listed in FIELDS (shown below). Send dates as 
 related rows by primary key (customer.pk) and numbers as text like "0". Check the shown-again form with
 response.context["form"].non_field_errors() and a successful save with assertRedirects. Never mock.
 Create real rows in setUp (for example a customer) and never assert the opposite of what you set up.
+Never replace or reassign a function in the test (that does nothing). To make a service refuse, set up REAL
+data that makes it refuse (for example a customer with is_active=False). Use a NEW unique value for every
+unique field you post (a number that no existing row has).
+Example of the shown-again check:
+    response = self.client.post(reverse("app:create"), {"number": "N1", "date": "2023-10-05",
+                                "customer": inactive.pk, "total": "0"})
+    self.assertEqual(response.status_code, 200)
+    self.assertTrue(response.context["form"].non_field_errors())
+    self.assertEqual(Sale.objects.count(), 0)
 '''
 
 

@@ -26,7 +26,7 @@
    "class": "SaleCreateView",
    "name": "form_valid",
    "url_name": "sales:create",
-   "spec": "form_valid(self, form) creates the sale by calling create_sale(customer, number, date), imported from sales.services, with form.cleaned_data customer, number and date. If create_sale raises ValueError, add its text to the form with form.add_error(None, str(e)) and return self.form_invalid(form), so the form is shown again and no Sale is created. On success redirect to sales:list."
+   "spec": "form_valid(self, form) creates the sale by calling create_sale(customer, number, date), imported from sales.services, with form.cleaned_data customer, number and date. create_sale raises ValueError only when the customer is not active. If it raises, add the text to the form with form.add_error(None, str(e)) and return self.form_invalid(form), so the form is shown again with status 200 and no Sale is created. On success redirect to sales:list. Do not use the messages framework."
   }
  ]
 }

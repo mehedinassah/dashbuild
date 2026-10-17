@@ -1121,3 +1121,16 @@ def test_same_assertion_failure_five_times_blames_the_tests(ws, monkeypatch):
     r = pipeline.run_card(ws, CARD, "fake", attempts=1, log=quiet)
     assert r["status"] == "failed" and "Probably a test is wrong" in r["reason"]
     assert git_clean(ws)
+
+
+def test_fake_mock_by_reassigning_a_function_is_bounced(ws):
+    fake = VIEW_TESTS + "\n# x\ndef mock_create_sale(*a):\n    raise ValueError('x')\n"
+    assert "do not mock" in pipeline.check_tests(fake, dict(VIEW_CARD))
+
+
+def test_form_view_tests_must_not_look_for_messages_unless_the_rule_says_so(ws):
+    card = dict(VIEW_CARD, **{"class": "SaleCreateView", "url_name": "sales:ship_sale_view",
+                              "spec": "form_valid adds the error to the form with form.add_error"})
+    code = VIEW_TESTS + "\n    def shown(self, r):\n        return list(get_messages(r.wsgi_request))\n"
+    why = pipeline.check_tests(code, card)
+    assert why and "FORM" in why
