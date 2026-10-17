@@ -1,5 +1,6 @@
 from django.db import models
 import decimal
+from decimal import Decimal
 
 
 class Sale(models.Model):
@@ -20,6 +21,12 @@ class Sale(models.Model):
         for item in self.saleitem_set.all():
             total += item.line_total()
         self.total = total
+        return total
+
+    def amount_paid(self):
+        total = Decimal('0.00')
+        for payment in self.payment_set.all():
+            total += payment.amount
         return total
 
 
