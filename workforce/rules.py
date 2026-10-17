@@ -27,22 +27,57 @@ def validate_cards(ws, cards):
         if not isinstance(c, dict):
             problems.append(f"{tag}: must be an object")
             continue
+        c0 = c
         c = {k: (str(c.get(k) or "")).strip() for k in
              ("app", "kind", "class", "name", "spec", "mode", "tag", "definition",
               "url", "button", "show_if", "url_name")}
-        if c["kind"] not in ("model", "service", "field", "view"):
-            problems.append(f"{tag}: kind must be 'model', 'service', 'field' or 'view'")
+        fl = c0.get("fields") if isinstance(c0.get("fields"), list) else []
+        if c["kind"] not in ("model", "service", "field", "view", "class"):
+            problems.append(f"{tag}: kind must be 'model', 'service', 'field', 'view' or 'class'")
             continue
         if c["app"] not in apps:
             problems.append(f"{tag}: app '{c['app']}' does not exist (apps: {', '.join(apps)})")
             continue
-        if not re.fullmatch(r"[a-z_][a-z0-9_]*", c["name"]):
+        if c["kind"] == "class":
+            if not re.fullmatch(r"[A-Z][A-Za-z0-9]{1,40}", c["name"]):
+                problems.append(f"{tag}: a class card needs a CamelCase name such as 'Payment'")
+                continue
+        elif not re.fullmatch(r"[a-z_][a-z0-9_]*", c["name"]):
             problems.append(f"{tag}: name '{c['name']}' must be snake_case")
             continue
         if not (10 if c["kind"] == "field" else 25) <= len(c["spec"]) <= 500:
             problems.append(f"{tag}: spec must be 25-500 characters")
             continue
-        if c["kind"] == "field":
+        if c["kind"] == "class":
+            bad = None
+            if c["name"] in apps[c["app"]]:
+                bad = f"class {c['name']} already exists in {c['app']}"
+            elif not 1 <= len(fl) <= 8:
+                bad = "a class card needs 1 to 8 'fields', each {name, definition}"
+            else:
+                names = []
+                for f in fl:
+                    fn = str(f.get("name") or "").strip() if isinstance(f, dict) else ""
+                    fd = str(f.get("definition") or "").strip() if isinstance(f, dict) else ""
+                    if not re.fullmatch(r"[a-z][a-z0-9_]*", fn) or fn in names or fn in ("id", "pk"):
+                        bad = f"field name '{fn}' must be a new snake_case name"
+                        break
+                    err = fields.check_definition(fd, new_table=True)
+                    if err:
+                        bad = f"field {fn}: {err}"
+                        break
+                    m = re.match(r"models\.ForeignKey\(\s*['\"](\w+)\.(\w+)['\"]", fd)
+                    if m and (m.group(1) not in apps or m.group(2) not in apps[m.group(1)]):
+                        bad = f"field {fn}: {m.group(1)}.{m.group(2)} does not exist"
+                        break
+                    names.append(fn)
+                c["fields"] = [{"name": f["name"].strip(), "definition": f["definition"].strip()}
+                               for f in fl] if not bad else []
+            if bad:
+                problems.append(f"{tag}: {bad}")
+                continue
+            c["class"] = c["mode"] = c["tag"] = ""
+        elif c["kind"] == "field":
             info = apps[c["app"]].get(c["class"])
             if info is None:
                 problems.append(f"{tag}: class '{c['class']}' not found in {c['app']}")
@@ -121,7 +156,7 @@ def validate_cards(ws, cards):
             continue
         seen.add(cid)
         valid.append(c)
-    valid.sort(key=lambda c: c["kind"] != "field")  # fields first, order otherwise kept
+    valid.sort(key=lambda c: {"class": 0, "field": 1}.get(c["kind"], 2))  # models, fields first
     if len(valid) > 8:
         problems.append("more than 8 cards; keeping the first 8")
         valid = valid[:8]
@@ -162,7 +197,7 @@ REPAIR_SKIP = ("the existing tests are not green", "makemigrations", "needs a Dj
 
 
 def repairable(card, reason):
-    return card.get("kind") != "field" and not any(k in (reason or "") for k in REPAIR_SKIP)
+    return card.get("kind") not in ("field", "class") and not any(k in (reason or "") for k in REPAIR_SKIP)
 
 
 def repair_spec(ws, card, reason, model=None, chat_fn=None, tries=2):

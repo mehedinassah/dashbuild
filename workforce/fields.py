@@ -19,7 +19,7 @@ def _literal(node):
         and isinstance(node.operand, ast.Constant)
 
 
-def check_definition(defn):
+def check_definition(defn, new_table=False):
     """-> error text or None. Only plain Django fields with literal arguments are accepted."""
     try:
         call = ast.parse((defn or "").strip(), mode="eval").body
@@ -45,7 +45,7 @@ def check_definition(defn):
             return f"argument {kw.arg} must be a plain value"
         kws[kw.arg] = kw.value
     null_ok = "null" in kws and isinstance(kws["null"], ast.Constant) and kws["null"].value is True
-    if "default" not in kws and not null_ok:
+    if "default" not in kws and not null_ok and not new_table:
         return "give the field a default=... or null=True, so existing rows stay valid"
     if kind == "ForeignKey":
         if not call.args or not isinstance(call.args[0], ast.Constant) \
@@ -160,5 +160,100 @@ def run_field_card(ws, card, log=print):
         return fail("the full test suite fails after adding the field:\n" + out)
     result.update(status="passed", files=[str(models_py.relative_to(ws))] + [
         str((mig_dir / n).relative_to(ws)) for n in created])
+    result["seconds"] = round(time.time() - t0)
+    return result
+
+
+# ---------- class cards: a brand new model ----------
+def add_class(src, name, field_list):
+    """Append `class Name(models.Model)` with the given fields. -> (new_src, error)"""
+    try:
+        tree = ast.parse(src)
+    except SyntaxError as e:
+        return None, f"models.py is not valid Python ({e.msg})"
+    if any(isinstance(n, ast.ClassDef) and n.name == name for n in tree.body):
+        return None, f"class {name} already exists"
+    has_models = any((isinstance(n, ast.ImportFrom) and n.module == "django.db"
+                      and any(a.name == "models" for a in n.names)) for n in tree.body)
+    if not has_models:
+        return None, "models.py does not import 'models' from django.db"
+    body = "".join(f"    {f['name']} = {f['definition'].strip()}\n" for f in field_list)
+    new = (src.rstrip("\n") + f"\n\n\nclass {name}(models.Model):\n{body}\n"
+           f"    def __str__(self):\n        return f\"{name} {{self.pk}}\"\n")
+    try:
+        ast.parse(new)
+    except SyntaxError as e:
+        return None, f"the result would not be valid Python ({e.msg})"
+    return new, None
+
+
+def add_admin(src, name):
+    """Register the model in admin.py when that file is the usual one. -> new_src or None"""
+    if "from django.contrib import admin" not in src or f"register({name})" in src:
+        return None
+    return src.rstrip("\n") + f"\n\nfrom .models import {name}  # noqa: E402\nadmin.site.register({name})\n"
+
+
+def run_class_card(ws, card, log=print):
+    from .pipeline import card_id, run_suite
+    ws = Path(ws)
+    t0 = time.time()
+    result = {"id": card_id(card), "status": "failed", "attempts": 1, "reason": "", "kill_rate": None,
+              "model": "none (class card)", "files": [], "seconds": 0}
+
+    def fail(why):
+        result["reason"] = why
+        result["seconds"] = round(time.time() - t0)
+        return result
+
+    for f in card.get("fields") or []:
+        err = check_definition(f.get("definition"), new_table=True)
+        if err:
+            return fail(f"field {f.get('name')}: {err}")
+    models_py = ws / card["app"] / "models.py"
+    admin_py = ws / card["app"] / "admin.py"
+    mig_dir = ws / card["app"] / "migrations"
+    if not (ws / "manage.py").exists() or not mig_dir.exists():
+        return fail("this needs a Django project whose app has a migrations folder")
+    base = run_suite(ws)
+    if not base["ok"]:
+        return fail("the existing tests are not green, fix them first:\n" + base["output"][-600:])
+    original = models_py.read_text()
+    admin_original = admin_py.read_text() if admin_py.exists() else None
+    before = _migrations(ws, card["app"])
+    new_src, err = add_class(original, card["name"], card["fields"])
+    if err:
+        return fail(err)
+
+    def undo():
+        models_py.write_text(original)
+        if admin_original is not None:
+            admin_py.write_text(admin_original)
+        for n in _migrations(ws, card["app"]) - before:
+            (mig_dir / n).unlink(missing_ok=True)
+
+    log(f"[{result['id']}] adding the model and creating its migration")
+    models_py.write_text(new_src)
+    files = [str(models_py.relative_to(ws))]
+    if admin_original is not None:
+        new_admin = add_admin(admin_original, card["name"])
+        if new_admin:
+            admin_py.write_text(new_admin)
+            files.append(str(admin_py.relative_to(ws)))
+    r = _manage(ws, "makemigrations", card["app"], "--noinput")
+    created = sorted(_migrations(ws, card["app"]) - before)
+    if r.returncode or not created:
+        undo()
+        return fail("makemigrations did not work: " + (r.stderr or r.stdout)[-300:])
+    if _manage(ws, "makemigrations", "--check", "--dry-run").returncode:
+        undo()
+        return fail("the project still has model changes without a migration")
+    s = run_suite(ws)
+    if not s["ok"] or s["ran"] != base["ran"]:
+        out = s["output"][-500:]
+        undo()
+        return fail("the full test suite fails after adding the model:\n" + out)
+    files += [str((mig_dir / n).relative_to(ws)) for n in created]
+    result.update(status="passed", files=files)
     result["seconds"] = round(time.time() - t0)
     return result

@@ -644,6 +644,9 @@ def run_card(ws, card, model=None, attempts=None, log=print):
     if card.get("kind") == "field":
         from .fields import run_field_card
         return run_field_card(ws, card, log)
+    if card.get("kind") == "class":
+        from .fields import run_class_card
+        return run_class_card(ws, card, log)
     model = model or CFG["model"]
     attempts = attempts or CFG.get("card_attempts", 5)
     ws = Path(ws)

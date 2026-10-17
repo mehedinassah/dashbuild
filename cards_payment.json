@@ -1,0 +1,12 @@
+{"cards": [
+ {"app": "sales", "kind": "class", "name": "Payment",
+  "spec": "A payment received for a sale: which sale it belongs to, how much was paid, and the date it was recorded.",
+  "fields": [
+   {"name": "sale", "definition": "models.ForeignKey('sales.Sale', on_delete=models.PROTECT)"},
+   {"name": "amount", "definition": "models.DecimalField(max_digits=10, decimal_places=2)"},
+   {"name": "paid_on", "definition": "models.DateField(auto_now_add=True)"}]},
+ {"app": "sales", "kind": "model", "class": "Sale", "name": "amount_paid",
+  "spec": "amount_paid returns the sum of the amount of all Payment rows of this sale (self.payment_set) as a Decimal. It returns Decimal('0.00') when the sale has no payments."},
+ {"app": "sales", "kind": "service", "class": "", "name": "record_payment",
+  "spec": "record_payment(sale, amount) creates and returns a Payment for that sale with that amount. If sale.confirmed is False raise ValueError('Sale is not confirmed'). If amount is not greater than zero raise ValueError('Amount must be positive'). In both cases create no Payment."}
+]}

@@ -1233,3 +1233,48 @@ def test_ship_undoes_the_merge_when_tests_fail(ws, monkeypatch, tmp_path):
     assert ship.run_ship(NS(workspace=str(ws), branch=None, backup_dir=str(tmp_path)), out=msgs.append) == 1
     assert not (ws / "sales/test_broken.py").exists()
     assert "auto/x" in _git(ws, "branch")
+
+
+# ---------- v17: class cards (a brand new model) ----------
+NEWMODEL_CARD = {"app": "sales", "kind": "class", "name": "Payment",
+              "spec": "A payment received for a sale: which sale, how much, and when.",
+              "fields": [{"name": "sale", "definition": "models.ForeignKey('sales.Sale', on_delete=models.PROTECT)"},
+                         {"name": "amount", "definition": "models.DecimalField(max_digits=10, decimal_places=2)"},
+                         {"name": "paid_on", "definition": "models.DateField(null=True, blank=True)"}]}
+
+
+def test_class_card_validates_and_normalizes(ws):
+    ok, problems = rules_mod.validate_cards(ws, [dict(NEWMODEL_CARD)])
+    assert ok and not problems and ok[0]["fields"][1]["name"] == "amount"
+    for bad, word in [(dict(NEWMODEL_CARD, name="payment"), "CamelCase"),
+                      (dict(NEWMODEL_CARD, name="Sale"), "already exists"),
+                      (dict(NEWMODEL_CARD, fields=[]), "1 to 8"),
+                      (dict(NEWMODEL_CARD, fields=[{"name": "x", "definition": "print(1)"}]), "field x"),
+                      (dict(NEWMODEL_CARD, fields=[{"name": "s", "definition":
+                            "models.ForeignKey('sales.Nope', on_delete=models.PROTECT)"}]), "does not exist")]:
+        got, probs = rules_mod.validate_cards(ws, [bad])
+        assert not got and word in probs[0], probs
+
+
+def test_class_card_creates_model_and_migration(ws):
+    r = pipeline.run_card(ws, dict(NEWMODEL_CARD, **{"class": ""}), "none", log=quiet)
+    assert r["status"] == "passed", r["reason"]
+    src = (ws / "sales/models.py").read_text()
+    assert "class Payment(models.Model):" in src and "amount = models.DecimalField" in src
+    assert any("migrations/" in f for f in r["files"])
+    assert "Payment" in notes.project_map(ws)
+    assert pipeline.run_suite(ws)["ok"]
+
+
+def test_class_card_failure_leaves_project_untouched(ws):
+    before = (ws / "sales/models.py").read_text()
+    bad = dict(NEWMODEL_CARD, fields=[{"name": "x", "definition": "models.CharField(default='')"}])
+    r = pipeline.run_card(ws, bad, "none", log=quiet)
+    assert r["status"] == "failed" and (ws / "sales/models.py").read_text() == before and git_clean(ws)
+
+
+def test_class_cards_come_first_and_are_never_repaired(ws):
+    cards = [{"app": "sales", "kind": "service", "class": "", "name": "do_it", "spec": "x" * 30}, dict(NEWMODEL_CARD)]
+    ok, _ = rules_mod.validate_cards(ws, cards)
+    assert ok[0]["kind"] == "class"
+    assert not rules_mod.repairable({"kind": "class"}, "anything")

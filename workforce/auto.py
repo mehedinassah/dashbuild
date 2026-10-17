@@ -187,6 +187,7 @@ def run_plan(args, ask=input, out=print):
     kept = []
     for i, c in enumerate(cards, 1):
         what = (f"field {c['class']}.{c['name']} = {c['definition']}" if c["kind"] == "field"
+                else f"new model {c['name']} ({', '.join(f['name'] for f in c['fields'])})" if c["kind"] == "class"
                 else f"{c['kind']} {(c['class'] + '.') if c['class'] else ''}{c['name']}")
         out(f"\nCard {i} of {len(cards)}: {what}\n  Rule: {c['spec']}")
         while True:
