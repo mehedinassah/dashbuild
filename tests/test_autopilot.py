@@ -1134,3 +1134,102 @@ def test_form_view_tests_must_not_look_for_messages_unless_the_rule_says_so(ws):
     code = VIEW_TESTS + "\n    def shown(self, r):\n        return list(get_messages(r.wsgi_request))\n"
     why = pipeline.check_tests(code, card)
     assert why and "FORM" in why
+
+
+# ---------- v17: self-repair and ship ----------
+def _fake_chat_spec(spec):
+    return lambda **kw: NS(message=NS(content=json.dumps({"spec": spec})))
+
+
+def test_repair_spec_returns_a_new_valid_rule(ws):
+    new = rules_mod.repair_spec(ws, dict(CARD), "the same failure happened 5 times", "m",
+                                chat_fn=_fake_chat_spec("line_total returns unit price times quantity; "
+                                                        "tests must not assert any other value."))
+    assert new and "tests must not assert" in new
+
+
+def test_repair_spec_rejects_unchanged_or_short(ws):
+    same = _fake_chat_spec(CARD["spec"])
+    assert rules_mod.repair_spec(ws, dict(CARD), "x", "m", chat_fn=same) is None
+    assert rules_mod.repair_spec(ws, dict(CARD), "x", "m", chat_fn=_fake_chat_spec("short")) is None
+
+
+def test_repairable_skips_fields_and_red_baselines():
+    assert not rules_mod.repairable({"kind": "field"}, "anything")
+    assert not rules_mod.repairable({"kind": "model"}, "the existing tests are not green, fix them first")
+    assert rules_mod.repairable({"kind": "model"}, "the same failure happened 5 times")
+
+
+def test_failed_card_is_retried_with_a_rewritten_rule(ws, monkeypatch):
+    # first run: the model's tests are weak and every attempt fails; after the rewrite it passes
+    use(monkeypatch, Fake([WEAK_TESTS] * 5 + [GOOD_TESTS], [GOOD_IMPL] * 6))
+    monkeypatch.setitem(auto.CFG, "card_attempts", 5)
+    seen = []
+
+    def fix(w, card, reason, model):
+        seen.append(reason)
+        return "line_total returns unit price times quantity. Check the exact product of price and quantity."
+    state = {"done": [], "failed": {}, "declined": []}
+    out = []
+    st = auto.run_cards(ws, [dict(CARD)], "fake", yes=True, state=state, log=out.append, repair=1,
+                        repair_fn=fix)
+    assert seen and st["done"] and "repaired" in st
+    assert any("rewrote the rule" in str(l) for l in out)
+
+
+def test_repair_is_off_when_zero_rounds(ws, monkeypatch):
+    use(monkeypatch, Fake([WEAK_TESTS] * 5, [GOOD_IMPL] * 5))
+    called = []
+    st = auto.run_cards(ws, [dict(CARD)], "fake", yes=True,
+                        state={"done": [], "failed": {}, "declined": []}, log=quiet, repair=0,
+                        repair_fn=lambda *a: called.append(1))
+    assert not called and not st["done"] and st["failed"]
+
+
+def _git(ws, *a):
+    return subprocess.run(["git", *a], cwd=ws, capture_output=True, text=True).stdout.strip()
+
+
+def test_ship_merges_tests_writes_handoff_and_backs_up(ws, monkeypatch, tmp_path):
+    use(monkeypatch, Fake([GOOD_TESTS], [GOOD_IMPL]))
+    cf = tmp_path / "cards.json"
+    cf.write_text(json.dumps({"cards": [CARD]}))
+    assert auto.main(["auto", "--workspace", str(ws), "--cards", str(cf), "--yes", "--no-preflight"]) == 0
+    branch = _git(ws, "branch", "--show-current")
+    assert branch.startswith("auto/")
+    bdir = tmp_path / "backups"
+    msgs = []
+    from workforce import ship
+    args = NS(workspace=str(ws), branch=None, backup_dir=str(bdir))
+    assert ship.run_ship(args, out=msgs.append) == 0, msgs
+    assert _git(ws, "branch", "--show-current") in ("master", "main")
+    assert "def line_total" in (ws / "sales/models.py").read_text()
+    assert branch not in _git(ws, "branch")
+    assert "Shipped" in (ws / "HANDOFF.md").read_text()
+    assert len(list(bdir.glob("*.tar.gz"))) == 1
+    assert git_clean(ws)
+    # shipping again has nothing to do
+    assert ship.run_ship(args, out=msgs.append) == 1
+
+
+def test_ship_refuses_a_dirty_tree(ws, tmp_path):
+    from workforce import ship
+    (ws / "x.txt").write_text("x")
+    msgs = []
+    assert ship.run_ship(NS(workspace=str(ws), branch=None, backup_dir=str(tmp_path)), out=msgs.append) == 1
+    assert "uncommitted" in msgs[0]
+
+
+def test_ship_undoes_the_merge_when_tests_fail(ws, monkeypatch, tmp_path):
+    from workforce import ship
+    _git(ws, "checkout", "-q", "-b", "auto/x")
+    (ws / "sales/test_broken.py").write_text(
+        "from django.test import TestCase\nclass T(TestCase):\n    def test_x(self):\n        self.assertTrue(False)\n")
+    _git(ws, "add", "-A")
+    _git(ws, "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-qm", "auto: broken")
+    st = {"done": [], "failed": {}, "declined": [], "branch": "auto/x"}
+    monkeypatch.setattr(auto, "load_state", lambda: st)
+    msgs = []
+    assert ship.run_ship(NS(workspace=str(ws), branch=None, backup_dir=str(tmp_path)), out=msgs.append) == 1
+    assert not (ws / "sales/test_broken.py").exists()
+    assert "auto/x" in _git(ws, "branch")

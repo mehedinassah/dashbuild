@@ -61,14 +61,32 @@ def revert(ws, files):
             (Path(ws) / f).unlink(missing_ok=True)
 
 
-def run_cards(ws, cards, model, yes=False, ask=input, state=None, log=print, root=None):
+def run_cards(ws, cards, model, yes=False, ask=input, state=None, log=print, root=None,
+              repair=None, repair_fn=None):
     state = state if state is not None else load_state()
+    repair = CFG.get("repair_rounds", 2) if repair is None else repair
+    repair_fn = repair_fn or rules.repair_spec
     for c in cards:
         cid = pipeline.card_id(c)
         if cid in state["done"]:
             log(f"skip {cid} (already done)")
             continue
         res = pipeline.run_card(ws, c, model, log=log)
+        rounds = 0
+        while res["status"] != "passed" and rounds < repair and rules.repairable(c, res["reason"]):
+            rounds += 1
+            try:
+                new = repair_fn(ws, c, res["reason"], model)
+            except Exception as e:  # a model hiccup must never stop the run
+                log(f"[repair] could not rewrite the rule: {e}")
+                new = None
+            if not new:
+                break
+            log(f"[repair {rounds}/{repair}] {cid} failed. The model rewrote the rule:\n  {new}")
+            c = dict(c, spec=new)
+            state.setdefault("repaired", {})[cid] = new
+            save_state(state)
+            res = pipeline.run_card(ws, c, model, log=log)
         scorecard.record(res, root)
         if res["status"] != "passed":
             log(f"FAILED {cid}: {res['reason'][:300]}")
@@ -146,8 +164,8 @@ def run_auto(args):
     for k, v in state["failed"].items():
         print(f"  failed {k}: {v[:120]}")
     print(f"Review:  git log --oneline   (branch {state.get('branch')})")
-    print("Keep it: git checkout main && git merge " + str(state.get("branch")))
-    print("Discard: git checkout main && git branch -D " + str(state.get("branch")))
+    print("Keep it:  ./wfa ship     (merges, tests, writes the handoff, backs up)")
+    print("Discard: git checkout master && git branch -D " + str(state.get("branch")))
     return 0
 
 
@@ -215,6 +233,10 @@ def main(argv=None):
     pl.add_argument("--model")
     pl.add_argument("--out", default="cards_plan.json")
     pl.add_argument("--no-preflight", action="store_true")
+    sh = sub.add_parser("ship", help="merge the finished branch, run the tests, write the handoff, back up")
+    sh.add_argument("--workspace", default=str(ROOT / "workspace_crm"))
+    sh.add_argument("--branch")
+    sh.add_argument("--backup-dir")
     sub.add_parser("score", help="show what each model has managed")
     m = sub.add_parser("map", help="print the project map the agent sees")
     m.add_argument("--workspace", default=str(ROOT / "workspace_crm"))
@@ -225,6 +247,9 @@ def main(argv=None):
         return run_auto(args)
     if args.cmd == "plan":
         return run_plan(args)
+    if args.cmd == "ship":
+        from . import ship
+        return ship.run_ship(args)
     if args.cmd == "score":
         print(scorecard.summary())
         return 0

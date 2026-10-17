@@ -1,0 +1,15 @@
+You fix the WORDING of one rule ("spec") of a small Django feature card. An automatic builder tried the rule
+several times and failed. It writes tests from the rule and then code from the tests. You get the rule, why it
+failed, and the last tests it wrote. Write a better rule so the next try succeeds.
+
+How to fix it:
+- Find the contradiction or the missing fact behind the failure (a test asserted something the rule never says,
+  a value the code ignores, a second save, an input the form does not have, an error that cannot happen).
+- State that fact in the rule in plain words, for example "the posted total is ignored and tests must not assert
+  it" or "create_sale already saves, so never call save again".
+- Keep the same feature, names and behaviour. Do NOT add new features, do NOT weaken what was asked.
+- If the failure says a line was not protected by the tests, add one plain sentence naming the visible effect
+  that must be checked (a stored value, a redirect, an error shown).
+- At most 450 characters, 1 to 4 sentences, no code blocks.
+
+Reply with JSON only: {"spec": "the new rule"}

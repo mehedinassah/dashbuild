@@ -156,3 +156,50 @@ def propose_cards(description, ws, model=None, tries=3, log=print):
                      {"role": "user", "content": "Fix these problems and resend all cards: "
                       + "; ".join(problems)}]
     return best, problems
+
+
+REPAIR_SKIP = ("the existing tests are not green", "makemigrations", "needs a Django project")
+
+
+def repairable(card, reason):
+    return card.get("kind") != "field" and not any(k in (reason or "") for k in REPAIR_SKIP)
+
+
+def repair_spec(ws, card, reason, model=None, chat_fn=None, tries=2):
+    """The model rewrites the rule of a failed card; Python checks it. -> new spec or None."""
+    from .pipeline import test_file
+    model = model or CFG["model"]
+    chat_fn = chat_fn or chat
+    ws = Path(ws)
+    tf = ws / ".autopilot" / "failed" / test_file(ws, card).name
+    tests = tf.read_text()[:2500] if tf.exists() else "(not kept)"
+    fields_line = ""
+    if card.get("kind") == "view":
+        vp = ws / card["app"] / "views.py"
+        if vp.exists():
+            m = re.search(r"^FIELDS = .*$", vp.read_text(), re.M)
+            fields_line = f"\nThe generated form of this app lists: {m.group(0)}" if m else ""
+    user = (f"Card: {card['kind']} {card.get('class') or ''} {card['name']} in app {card['app']}\n"
+            f"Current rule: {card['spec']}\n\nWhy it failed:\n{reason[:900]}\n{fields_line}\n\n"
+            f"The last tests it wrote:\n{tests}\n\nProject map:\n{project_map(ws)[:2500]}")
+    messages = [{"role": "system", "content": (PROMPTS / "card_repair.txt").read_text()},
+                {"role": "user", "content": user}]
+    for _ in range(tries):
+        extra = {"think": CFG["think"]} if "think" in CFG else {}
+        resp = chat_fn(model=model, messages=messages, format="json", **extra,
+                       options={"num_ctx": CFG["num_ctx"], "temperature": CFG["temperature"],
+                                "num_predict": CFG["num_predict"]})
+        text = resp.message.content or ""
+        try:
+            spec = str(json.loads(text).get("spec") or "").strip()
+        except (ValueError, AttributeError):
+            spec = ""
+        why = None
+        if not 25 <= len(spec) <= 500:
+            why = "the spec must be 25-500 characters"
+        elif spec == card["spec"].strip():
+            why = "the spec is unchanged; fix the wording"
+        if not why:
+            return spec
+        messages += [{"role": "assistant", "content": text}, {"role": "user", "content": why + ". Resend JSON."}]
+    return None
