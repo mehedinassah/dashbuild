@@ -8,6 +8,7 @@ from django.shortcuts import get_object_or_404, redirect
 from django.views.decorators.http import require_POST
 from sales.services import confirm_sale
 from sales.services import cancel_sale
+from sales.services import create_sale
 
 FIELDS = ["number", "date", "customer"]
 SEARCH_FIELDS = ["number"]
@@ -39,6 +40,19 @@ class SaleCreateView(CreateView):
     fields = FIELDS
     template_name = "sales/form.html"
     success_url = reverse_lazy("sales:list")
+
+    def form_valid(self, form):
+        customer = form.cleaned_data['customer']
+        number = form.cleaned_data['number']
+        date = form.cleaned_data['date']
+
+        try:
+            create_sale(customer, number, date)
+        except ValueError as e:
+            form.add_error(None, str(e))
+            return self.form_invalid(form)
+
+        return redirect('sales:list')
 
 
 class SaleUpdateView(UpdateView):
