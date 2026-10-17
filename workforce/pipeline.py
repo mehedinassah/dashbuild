@@ -154,6 +154,9 @@ def _check_view_tests(code, card):
         return "get the address with reverse('app:name'), never type the URL by hand"
     if expected not in code:
         return f"the tests must call reverse('{expected}')"
+    if re.search(r"\bmock\b|\bpatch\b|MagicMock|monkeypatch", code):
+        return ("do not mock or patch anything. Create real rows in the test database and let the real "
+                "service run")
     if "assertRaises" in code:
         return ("a view does not raise errors to the user. Test the response instead: status code, "
                 "redirect, the saved data and the messages")
@@ -233,13 +236,27 @@ def classify_red(output, ok, name):
         if _missing(output, name):
             return True, ""
         return False, "the tests could not run: " + _last_error(output)
+    lines = test_lines(output)
     for tname, err in fails:
         if err.startswith("AssertionError") or _missing(err, name):
             continue
-        return False, (f"{tname} fails for the wrong reason: {err}. A test must fail only because "
+        where = f" on the line `{lines[tname]}`" if tname in lines else ""
+        return False, (f"{tname} fails for the wrong reason: {err}{where}. A test must fail only because "
                        f"'{name}' is missing. Create every required related row (a SaleItem needs "
-                       "both a sale and a product) and never create rows with missing required fields.")
+                       "both a sale and a product), never create rows with missing required fields, and "
+                       "never mock anything.")
     return True, ""
+
+
+def test_lines(output):
+    """{test_name: the last line of the TEST file that ran when it failed}"""
+    out = {}
+    for m in re.finditer(r"^(?:ERROR|FAIL): (\w+) \(.*?(?=^={10,}|\Z)", output, re.M | re.S):
+        frames = re.findall(r'File "([^"]+)", line \d+, in \w+\n\s+(.+)', m.group(0))
+        mine = [t for f, t in frames if Path(f).name.startswith("test_")]
+        if mine:
+            out[m.group(1)] = mine[-1].strip()[:140]
+    return out
 
 
 def _last_error(output):
@@ -306,6 +323,52 @@ def change_note(ws, card, phase):
     return f"\nThis card CHANGES an existing function. Its current code is:\n{cur}\n{how}\n"
 
 
+VIEW_SKELETON = '''
+Use this shape for the test file (replace the examples with the rows and names of THIS card):
+
+from django.contrib.messages import get_messages
+from django.test import TestCase
+from django.urls import reverse
+# import the models you need
+
+class SomethingViewTests(TestCase):
+    def setUp(self):
+        # create REAL rows with Model.objects.create(...), keep them in self.xxx
+        ...
+
+    def shown(self, response):
+        return [(m.level_tag, str(m)) for m in get_messages(response.wsgi_request)]
+
+    def test_success(self):
+        response = self.client.post(reverse("app:name", args=[self.obj.pk]))
+        self.assertRedirects(response, reverse("app:list"))
+        self.assertEqual(self.shown(response), [("success", "the success text from the rule")])
+        # then: obj.refresh_from_db() and assertEqual on the stored value that really changed
+
+    def test_refused_by_the_rule(self):
+        # set up data so the service really refuses (for example not enough stock), do NOT patch anything
+        response = self.client.post(reverse("app:name", args=[self.other.pk]))
+        self.assertRedirects(response, reverse("app:list"))
+        self.assertEqual([level for level, text in self.shown(response)], ["error"])  # never guess the error text
+        # then: refresh_from_db() and assert the values are STILL what you set up (never the opposite)
+
+    def test_get_is_refused(self):
+        response = self.client.get(reverse("app:name", args=[self.obj.pk]))
+        self.assertEqual(response.status_code, 405)
+
+Rules: never use mock or patch. A set-up value and its later assertion must agree: if you create a sale with
+confirmed=True and the action is refused, assert it is still True.
+'''
+
+
+CLASS_SKELETON = '''
+For a form view, post EVERY field listed in FIELDS (shown below). Send dates as text like "2023-10-05",
+related rows by primary key (customer.pk) and numbers as text like "0". Check the shown-again form with
+response.context["form"].non_field_errors() and a successful save with assertRedirects. Never mock.
+Create real rows in setUp (for example a customer) and never assert the opposite of what you set up.
+'''
+
+
 def _view_note(card):
     base = ("\nThe feature is part of a Django VIEW in {app}/views.py. Test it ONLY through the test client "
             "and reverse(...). To read messages shown to the user use: "
@@ -313,11 +376,11 @@ def _view_note(card):
             "msgs = [str(m) for m in get_messages(response.wsgi_request)]. "
             "A redirect is checked with self.assertRedirects(response, reverse('app:list')).\n").format(app=card["app"])
     if card.get("class"):
-        return base + (f"It is the method {card['name']}(self, ...) of the existing class {card['class']}. "
+        return CLASS_SKELETON + base + (f"It is the method {card['name']}(self, ...) of the existing class {card['class']}. "
                        f"Tests call the page with reverse('{card['url_name']}'). Send form data with "
                        "self.client.post(url, {...}); a form that is shown again has status 200 and "
                        "response.context['form'].errors. Write ONE method with self as first argument.\n")
-    return base + (f"It is a plain FUNCTION view {card['name']}(request, pk) (no class). Tests call it with "
+    return VIEW_SKELETON + base + (f"It is a plain FUNCTION view {card['name']}(request, pk) (no class). Tests call it with "
                    f"reverse('{card['app']}:{card['name']}', args=[obj.pk]). "
                    "In your code: from django.contrib import messages ; "
                    "from django.shortcuts import get_object_or_404, redirect ; "
@@ -477,6 +540,13 @@ def phase_impl(ws, card, model, feedback):
                                   "` (" + te[0] + "). Write tests that do not do that")
         seen = state.setdefault("fail_counts", {})
         seen[out] = seen.get(out, 0) + 1
+        if seen[out] >= 5:
+            first = out.splitlines()[1] if len(out.splitlines()) > 1 else out
+            state["abort"] = ("the same failure happened " + str(seen[out]) + " times with different code (" +
+                              first.strip()[:200] + "). Probably a test is wrong: it must not contradict its "
+                              "own set-up (for example creating something with confirmed=True and then "
+                              "asserting it is False), must not guess texts it cannot know, and must test "
+                              "only what the rule says")
         if seen[out] >= 2:
             out += ("\nTHIS EXACT FAILURE HAPPENED " + str(seen[out]) + " TIMES. Your approach is wrong. "
                     "Read the failing test line again. If the test expects data to be unchanged, your code "

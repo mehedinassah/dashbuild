@@ -1085,3 +1085,39 @@ def test_view_class_source_is_shown_to_the_model(ws, monkeypatch):
     r = pipeline.run_card(ws, CLASS_CARD, "fake", log=quiet)
     assert r["status"] == "passed", r["reason"]
     assert all("class SaleCreateView(CreateView)" in m and "fields = " in m for m in seen)
+
+
+# ---------- v15: what the real run of the three view cards showed ----------
+def test_view_tests_with_mocks_are_bounced(ws):
+    mocked = VIEW_TESTS.replace("from django.urls import reverse",
+                                "from django.urls import reverse\nfrom unittest.mock import patch")
+    assert "do not mock" in pipeline.check_tests(mocked, dict(VIEW_CARD))
+
+
+def test_wrong_reason_message_names_the_test_line(ws):
+    bad = VIEW_TESTS.replace('stock=stock)', 'stock=stock, bogus_field=1)')
+    (ws / "sales/test_x.py").write_text(bad)
+    r = pipeline.run_suite(ws)
+    ok, why = pipeline.classify_red(r["output"], r["ok"], "ship_sale_view")
+    assert not ok and "on the line `" in why and "never mock" in why
+
+
+def test_view_note_has_a_worked_skeleton_and_form_rules():
+    note = pipeline.kind_note(VIEW_CARD)
+    assert "def test_refused_by_the_rule" in note and "never use mock" in note.lower()
+    assert "assert it is still True" in note
+    cls_note = pipeline.kind_note(CLASS_CARD)
+    assert "post EVERY field" in cls_note and "non_field_errors" in cls_note
+
+
+def test_same_assertion_failure_five_times_blames_the_tests(ws, monkeypatch):
+    # tests that contradict themselves: nothing the code does can make them pass
+    contradictory = GOOD_TESTS.replace('self.assertEqual(self.make("5.00", 3).line_total(), Decimal("15.00"))',
+                                       'self.assertEqual(self.make("5.00", 3).quantity, 99)')
+    impls = [f"def line_total(self):\n    # try {i}\n    return self.product.price * self.quantity\n"
+             for i in range(12)]
+    use(monkeypatch, Fake([contradictory], impls))
+    monkeypatch.setattr(pipeline, "classify_red", lambda *a, **k: (True, ""))
+    r = pipeline.run_card(ws, CARD, "fake", attempts=1, log=quiet)
+    assert r["status"] == "failed" and "Probably a test is wrong" in r["reason"]
+    assert git_clean(ws)
