@@ -81,3 +81,10 @@ cd ~ && tar czf ai-workforce-backup-$(date +%F).tar.gz --exclude=.venv --exclude
 - Known gaps: create_sale is not used by anything yet (no views/forms); no transactions around
   confirm_sale / cancel_sale; the model cannot create a whole new model/app yet.
 - Next: views and forms for sales and customers, then the same for products.
+
+## Status 2026-10-18
+- View cards built by the agent: confirm_sale_view, cancel_sale_view, SaleCreateView.form_valid (v15/v16).
+- Sale form no longer has an editable total (FIELDS = number, date, customer).
+- card_minutes = 25 in config.json.
+- CRM suite: 69 tests OK.
+- Known gaps: no transactions around confirm/cancel; customer forms ignore notes/is_active; agent cannot create new modules yet.
