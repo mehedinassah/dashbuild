@@ -3,6 +3,10 @@ from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from .models import Sale
+from django.contrib import messages
+from django.shortcuts import get_object_or_404, redirect
+from django.views.decorators.http import require_POST
+from sales.services import confirm_sale
 
 FIELDS = ["number", "date", "customer", "total"]
 SEARCH_FIELDS = ["number"]
@@ -54,3 +58,16 @@ class SaleDeleteView(DeleteView):
         except ProtectedError:
             context = self.get_context_data(object=self.object, protected=True)
             return self.render_to_response(context)
+
+
+@require_POST
+def confirm_sale_view(request, pk):
+    sale = get_object_or_404(Sale, pk=pk)
+
+    try:
+        confirm_sale(sale)
+        messages.success(request, 'Sale confirmed.')
+    except ValueError as e:
+        messages.error(request, str(e))
+
+    return redirect('sales:list')
