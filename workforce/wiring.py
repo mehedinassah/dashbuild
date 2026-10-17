@@ -6,6 +6,7 @@ from pathlib import Path
 
 URL_RE = re.compile(r"^(<int:pk>/)?[a-z][a-z0-9_-]*/$")
 LABEL_RE = re.compile(r"^[A-Za-z][A-Za-z0-9 ]{0,19}$")
+NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 SHOW_IF_RE = re.compile(r"^(not )?item\.\w+( (==|!=) (True|False|\d+|'[\w ]*'))?$")
 
 MESSAGES_HTML = ('{% if messages %}<div class="messages">{% for m in messages %}'
@@ -30,6 +31,10 @@ def check_view_card(c):
         return "show_if must look like: not item.confirmed   or   item.confirmed == True"
     if c.get("button") and "<int:pk>" not in c["url"]:
         return "a row button needs a url with <int:pk>/"
+    if c.get("input") and not (c.get("button") and NAME_RE.match(c["input"])):
+        return "input must be a snake_case name and needs a button"
+    if c.get("column") and not NAME_RE.match(c["column"]):
+        return "column must be a snake_case attribute of the listed model, for example amount_paid"
     return None
 
 
@@ -87,7 +92,7 @@ def ensure_messages_block(ws):
     return {p: src}
 
 
-def add_row_button(ws, app, view_name, label, show_if=""):
+def add_row_button(ws, app, view_name, label, show_if="", field=""):
     """Put a POST button in the 'actions' cell of every row of <app>'s list page."""
     p = Path(ws) / app / "templates" / app / "list.html"
     if not p.exists():
@@ -95,11 +100,30 @@ def add_row_button(ws, app, view_name, label, show_if=""):
     src = p.read_text()
     if f"{app}:{view_name}" in src or '<td class="actions">' not in src:
         return {}
+    box = (f"<input type=\"number\" step=\"0.01\" min=\"0\" name=\"{field}\" placeholder=\"{field.replace('_', ' ')}\" "
+           f"required style=\"width:6.5rem\"> ") if field else ""
     form = (f"<form method=\"post\" action=\"{{% url '{app}:{view_name}' item.pk %}}\" class=\"inline\">"
-            f"{{% csrf_token %}}<button type=\"submit\" class=\"btn secondary\">{label}</button></form> ")
+            f"{{% csrf_token %}}{box}<button type=\"submit\" class=\"btn secondary\">{label}</button></form> ")
     if show_if:
         form = "{% if " + show_if + " %}" + form + "{% endif %}"
     new = src.replace('<td class="actions">', '<td class="actions">' + form, 1)
+    p.write_text(new)
+    return {p: src}
+
+
+def add_list_column(ws, app, column):
+    """A new column on <app>'s list page showing item.<column>. -> {path: original_text}"""
+    p = Path(ws) / app / "templates" / app / "list.html"
+    if not p.exists():
+        return {}
+    src = p.read_text()
+    cell = "{{ item.%s }}" % column
+    if cell in src or "<th></th></tr></thead>" not in src or '<td class="actions">' not in src:
+        return {}
+    new = src.replace("<th></th></tr></thead>",
+                      f"<th>{column.replace('_', ' ').capitalize()}</th><th></th></tr></thead>", 1)
+    new = new.replace('<td class="actions">', f'<td>{cell}</td><td class="actions">', 1)
+    new = re.sub(r'colspan="(\d+)"', lambda m: f'colspan="{int(m.group(1)) + 1}"', new, count=1)
     p.write_text(new)
     return {p: src}
 
@@ -108,5 +132,9 @@ def apply(ws, card):
     """Everything a passed view card changes outside views.py. -> {path: original_text}"""
     changed = ensure_messages_block(ws)
     if card.get("button") and card.get("url"):
-        changed.update(add_row_button(ws, card["app"], card["name"], card["button"], card.get("show_if", "")))
+        changed.update(add_row_button(ws, card["app"], card["name"], card["button"], card.get("show_if", ""),
+                                      card.get("input", "")))
+    if card.get("column"):
+        for path, text in add_list_column(ws, card["app"], card["column"]).items():
+            changed.setdefault(path, text)
     return changed

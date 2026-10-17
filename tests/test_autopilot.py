@@ -1278,3 +1278,29 @@ def test_class_cards_come_first_and_are_never_repaired(ws):
     ok, _ = rules_mod.validate_cards(ws, cards)
     assert ok[0]["kind"] == "class"
     assert not rules_mod.repairable({"kind": "class"}, "anything")
+
+
+# ---------- v18: a view card with an input box and a list column ----------
+def test_view_card_input_and_column_are_checked():
+    c = dict(VIEW_CARD, input="amount", column="amount_paid")
+    assert wiring.check_view_card(c) is None
+    assert "input" in wiring.check_view_card(dict(c, input="Amount!"))
+    assert "input" in wiring.check_view_card(dict(VIEW_CARD, input="amount", button=""))
+    assert "column" in wiring.check_view_card(dict(c, column="x y"))
+
+
+def test_wiring_adds_the_input_box_and_the_list_column(ws):
+    card = dict(VIEW_CARD, input="amount", column="amount_paid", show_if="")
+    changed = wiring.apply(ws, card)
+    html = (ws / "sales/templates/sales/list.html").read_text()
+    assert 'name="amount"' in html and 'type="number"' in html and "{% csrf_token %}" in html
+    assert "<th>Amount paid</th><th></th>" in html and "{{ item.amount_paid }}" in html
+    assert 'colspan="3"' in html and changed
+    again = wiring.apply(ws, card)  # idempotent
+    assert (ws / "sales/templates/sales/list.html").read_text() == html and not again.get(
+        ws / "sales/templates/sales/list.html")
+
+
+def test_view_note_tells_the_model_about_the_posted_field():
+    note = pipeline.kind_note(dict(VIEW_CARD, input="amount"))
+    assert "ONE text field named amount" in note and "'abc'" in note

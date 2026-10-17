@@ -108,11 +108,12 @@ class SaleListView(ListView):
 {% block content %}
 <h1>Sales</h1>
 <table>
+  <thead><tr><th>Customer</th><th></th></tr></thead>
   <tbody>
   {% for item in items %}
     <tr><td>{{ item.customer_name }}</td><td class="actions"><a href="#">Edit</a></td></tr>
   {% empty %}
-    <tr><td>Nothing here yet.</td></tr>
+    <tr><td colspan="2">Nothing here yet.</td></tr>
   {% endfor %}
   </tbody>
 </table>

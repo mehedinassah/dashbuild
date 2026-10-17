@@ -30,7 +30,7 @@ def validate_cards(ws, cards):
         c0 = c
         c = {k: (str(c.get(k) or "")).strip() for k in
              ("app", "kind", "class", "name", "spec", "mode", "tag", "definition",
-              "url", "button", "show_if", "url_name")}
+              "url", "button", "show_if", "url_name", "input", "column")}
         fl = c0.get("fields") if isinstance(c0.get("fields"), list) else []
         if c["kind"] not in ("model", "service", "field", "view", "class"):
             problems.append(f"{tag}: kind must be 'model', 'service', 'field', 'view' or 'class'")

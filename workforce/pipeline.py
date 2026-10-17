@@ -392,7 +392,13 @@ def _view_note(card):
                        f"Tests call the page with reverse('{card['url_name']}'). Send form data with "
                        "self.client.post(url, {...}); a form that is shown again has status 200 and "
                        "response.context['form'].errors. Write ONE method with self as first argument.\n")
-    return VIEW_SKELETON + base + (f"It is a plain FUNCTION view {card['name']}(request, pk) (no class). Tests call it with "
+    inp = ""
+    if card.get("input"):
+        inp = (f"The page posts ONE text field named {card['input']}. Tests send it like "
+               f"self.client.post(url, {{'{card['input']}': '10.00'}}) and the view reads it with "
+               f"request.POST.get('{card['input']}', ''). Test one value that is not a number too, "
+               "for example 'abc'.\n")
+    return VIEW_SKELETON + inp + base + (f"It is a plain FUNCTION view {card['name']}(request, pk) (no class). Tests call it with "
                    f"reverse('{card['app']}:{card['name']}', args=[obj.pk]). "
                    "In your code: from django.contrib import messages ; "
                    "from django.shortcuts import get_object_or_404, redirect ; "
