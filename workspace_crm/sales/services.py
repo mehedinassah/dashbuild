@@ -2,6 +2,8 @@
 from products.services import reduce_stock
 from sales.models import Sale
 from decimal import Decimal
+from sales.models import Payment
+import datetime
 
 
 def confirm_sale(sale):
@@ -47,3 +49,12 @@ def create_sale(customer, number, date):
         raise ValueError("Customer is not active")
     sale = Sale.objects.create(number=number, date=date, customer=customer, total=Decimal('0.00'))
     return sale
+
+
+def record_payment(sale, amount):
+    if not sale.confirmed:
+        raise ValueError('Sale is not confirmed')
+    if amount <= Decimal('0'):
+        raise ValueError('Amount must be positive')
+    payment = Payment.objects.create(sale=sale, amount=amount, paid_on=datetime.date.today())
+    return payment
