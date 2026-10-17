@@ -9,7 +9,7 @@ from django.views.decorators.http import require_POST
 from sales.services import confirm_sale
 from sales.services import cancel_sale
 
-FIELDS = ["number", "date", "customer", "total"]
+FIELDS = ["number", "date", "customer"]
 SEARCH_FIELDS = ["number"]
 
 
