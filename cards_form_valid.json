@@ -6,7 +6,7 @@
    "class": "SaleCreateView",
    "name": "form_valid",
    "url_name": "sales:create",
-   "spec": "form_valid(self, form) creates the sale by calling create_sale(customer, number, date), imported from sales.services, with form.cleaned_data customer, number and date. create_sale already saves the Sale, so NEVER call super().form_valid or form.save(). create_sale raises ValueError only when the customer is not active: then call form.add_error(None, str(e)) and return self.form_invalid(form) (status 200, no Sale created). On success return redirect('sales:list'). No messages framework."
+   "spec": "form_valid(self, form) creates the sale by calling create_sale(customer, number, date), imported from sales.services, with form.cleaned_data customer, number and date. create_sale already saves the Sale, so NEVER call super().form_valid or form.save(). The new sale's total is always 0.00 (the posted total is ignored; tests must not assert it). create_sale raises ValueError only for an inactive customer: then form.add_error(None, str(e)) and return self.form_invalid(form) (status 200, no Sale). On success return redirect('sales:list')."
   }
  ]
 }
