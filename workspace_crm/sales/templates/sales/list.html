@@ -10,7 +10,7 @@
   <thead><tr><th>Number</th><th>Date</th><th>Customer</th><th>Total</th><th></th></tr></thead>
   <tbody>
   {% for item in items %}
-    <tr><td>{{ item.number }}</td><td>{{ item.date }}</td><td>{{ item.customer }}</td><td>{{ item.total }}</td><td class="actions">{% if not item.confirmed %}<form method="post" action="{% url 'sales:confirm_sale_view' item.pk %}" class="inline">{% csrf_token %}<button type="submit" class="btn secondary">Confirm</button></form> {% endif %}<a href="{% url "sales:update" item.pk %}">Edit</a> <a class="danger-link" href="{% url "sales:delete" item.pk %}">Delete</a></td></tr>
+    <tr><td>{{ item.number }}</td><td>{{ item.date }}</td><td>{{ item.customer }}</td><td>{{ item.total }}</td><td class="actions">{% if item.confirmed %}<form method="post" action="{% url 'sales:cancel_sale_view' item.pk %}" class="inline">{% csrf_token %}<button type="submit" class="btn secondary">Cancel</button></form> {% endif %}{% if not item.confirmed %}<form method="post" action="{% url 'sales:confirm_sale_view' item.pk %}" class="inline">{% csrf_token %}<button type="submit" class="btn secondary">Confirm</button></form> {% endif %}<a href="{% url "sales:update" item.pk %}">Edit</a> <a class="danger-link" href="{% url "sales:delete" item.pk %}">Delete</a></td></tr>
   {% empty %}
     <tr><td colspan="5">Nothing here yet.</td></tr>
   {% endfor %}

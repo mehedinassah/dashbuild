@@ -7,6 +7,7 @@ from django.contrib import messages
 from django.shortcuts import get_object_or_404, redirect
 from django.views.decorators.http import require_POST
 from sales.services import confirm_sale
+from sales.services import cancel_sale
 
 FIELDS = ["number", "date", "customer", "total"]
 SEARCH_FIELDS = ["number"]
@@ -70,4 +71,15 @@ def confirm_sale_view(request, pk):
     except ValueError as e:
         messages.error(request, str(e))
 
+    return redirect('sales:list')
+
+
+@require_POST
+def cancel_sale_view(request, pk):
+    sale = get_object_or_404(Sale, pk=pk)
+    try:
+        cancel_sale(sale)
+        messages.success(request, 'Sale cancelled.')
+    except ValueError as e:
+        messages.error(request, str(e))
     return redirect('sales:list')
