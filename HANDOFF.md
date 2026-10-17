@@ -88,3 +88,9 @@ cd ~ && tar czf ai-workforce-backup-$(date +%F).tar.gz --exclude=.venv --exclude
 - card_minutes = 25 in config.json.
 - CRM suite: 69 tests OK.
 - Known gaps: no transactions around confirm/cancel; customer forms ignore notes/is_active; agent cannot create new modules yet.
+
+## Shipped 2026-10-18 03:50 (auto/20261018-033514)
+- Built: sales_func_record_payment, sales_sale_amount_paid, sales_func_payment
+- Rules the agent rewrote itself: none
+- Failed: none
+- Test suite after merge: 76 tests OK
