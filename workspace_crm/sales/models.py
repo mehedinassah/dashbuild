@@ -21,3 +21,12 @@ class Sale(models.Model):
             total += item.line_total()
         self.total = total
         return total
+
+
+class Payment(models.Model):
+    sale = models.ForeignKey('sales.Sale', on_delete=models.PROTECT)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    paid_on = models.DateField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Payment {self.pk}"
