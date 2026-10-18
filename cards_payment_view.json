@@ -10,7 +10,7 @@
    "show_if": "item.confirmed",
    "input": "amount",
    "column": "amount_paid",
-   "spec": "record_payment_view(request, pk) records a payment for the sale with that pk. Read the posted field amount and convert it with Decimal. If the amount is invalid (not a number) show messages.error('Enter a valid amount.') and create nothing. Otherwise call record_payment(sale, amount), imported from sales.services. If it raises ValueError show the error text with messages.error. On success show 'Payment recorded.' Always redirect to sales:list. Only POST is allowed."
+   "spec": "record_payment_view(request, pk) records a payment for the sale with that pk. Read the posted field amount with Decimal; an invalid amount (not a number) shows messages.error('Enter a valid amount.') and creates nothing. Otherwise call record_payment(sale, amount) from sales.services; it raises ValueError for an unconfirmed sale or amount <= 0, then show the error text with messages.error. On success show 'Payment recorded.' Always redirect to sales:list. Only POST is allowed."
   }
  ]
 }

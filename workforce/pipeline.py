@@ -172,13 +172,27 @@ def count_tests(code):
                for m in c.body if isinstance(m, ast.FunctionDef) and m.name.startswith("test_"))
 
 
+ERR_LINE = re.compile(r"^(?:[A-Za-z_]\w*\.)*[A-Z]\w*(?:Error|Exception|Operation|DoesNotExist|NoReverseMatch|"
+                      r"Invalid\w*|Warning|Exists|Denied|Refused)\b")
+
+
+GENERIC_ERR = re.compile(r"^(?:[A-Za-z_]\w*\.)*[A-Z]\w*(?::|$)")
+
+
+def _is_err(line):
+    """Last line of a traceback: an exception name (dotted or not), optionally followed by ': message'."""
+    line = line.strip()
+    if line.startswith(("ERROR:", "FAIL:")):
+        return False
+    return bool(ERR_LINE.match(line) or GENERIC_ERR.match(line)) or line.startswith("AssertionError")
+
+
 def failing_tests(output):
     """-> [(test_name, final_error_line)] parsed from Django/unittest output."""
     out = []
     for m in re.finditer(r"^(?:ERROR|FAIL): (\w+) \(.*?(?=^={10,}|\Z)", output, re.M | re.S):
         block = m.group(0)
-        errs = [l.strip() for l in block.splitlines() if re.match(r"^[\w.]*(Error|Exception|NoReverseMatch)\b", l.strip())
-                or l.strip().startswith("AssertionError")]
+        errs = [l.strip() for l in block.splitlines() if _is_err(l)]
         out.append((m.group(1), (errs[-1] if errs else "failed")[:220]))
     return out
 
@@ -208,7 +222,7 @@ def test_error(output, name=""):
     for m in re.finditer(r"^(?:ERROR|FAIL): (\w+) \(.*?(?=^={10,}|\Z)", output, re.M | re.S):
         block = m.group(0)
         frames = re.findall(r'File "([^"]+)", line (\d+), in \w+\n\s+(.+)', block)
-        errs = [l.strip() for l in block.splitlines() if re.match(r"^[\w.]*(Error|Exception|NoReverseMatch)\b", l.strip())]
+        errs = [l.strip() for l in block.splitlines() if _is_err(l)]
         if not frames or not errs or errs[-1].startswith("AssertionError"):
             return None
         if name and name in errs[-1]:
@@ -397,7 +411,11 @@ def _view_note(card):
         inp = (f"The page posts ONE text field named {card['input']}. Tests send it like "
                f"self.client.post(url, {{'{card['input']}': '10.00'}}) and the view reads it with "
                f"request.POST.get('{card['input']}', ''). Test one value that is not a number too, "
-               "for example 'abc'.\n")
+               "for example 'abc'. IMPORTANT for the code: Decimal('abc') raises decimal.InvalidOperation, NOT "
+               "ValueError. Use: from decimal import Decimal, InvalidOperation ; try: amount = "
+               f"Decimal(request.POST.get('{card['input']}', '')) ; except InvalidOperation: show the "
+               "error message and redirect. In a test, to make the service refuse, set up REAL data that "
+               "it refuses (read its rule) and assert that nothing was created.\n")
     return VIEW_SKELETON + inp + base + (f"It is a plain FUNCTION view {card['name']}(request, pk) (no class). Tests call it with "
                    f"reverse('{card['app']}:{card['name']}', args=[obj.pk]). "
                    "In your code: from django.contrib import messages ; "

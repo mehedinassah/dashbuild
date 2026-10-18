@@ -1304,3 +1304,26 @@ def test_wiring_adds_the_input_box_and_the_list_column(ws):
 def test_view_note_tells_the_model_about_the_posted_field():
     note = pipeline.kind_note(dict(VIEW_CARD, input="amount"))
     assert "ONE text field named amount" in note and "'abc'" in note
+
+
+def test_failure_summary_names_decimal_invalid_operation():
+    out = ("======================================================================\n"
+           "ERROR: test_invalid_amount (sales.test_x.T.test_invalid_amount)\n"
+           "----------------------------------------------------------------------\n"
+           "Traceback (most recent call last):\n"
+           '  File "/p/sales/views.py", line 9, in pay\n    amount = Decimal(request.POST["amount"])\n'
+           "decimal.InvalidOperation: [<class 'decimal.ConversionSyntax'>]\n\n"
+           "======================================================================\n")
+    got = pipeline.failing_tests(out)
+    assert got and "InvalidOperation" in got[0][1]
+
+
+def test_every_kind_of_exception_line_is_recognised():
+    for line in ["django.urls.exceptions.NoReverseMatch: Reverse for 'x' not found",
+                 "decimal.InvalidOperation: [<class 'decimal.ConversionSyntax'>]",
+                 "django.db.utils.IntegrityError: UNIQUE constraint failed",
+                 "AssertionError: 1 != 0", "KeyError: 'amount'", "Http404: nothing"]:
+        assert pipeline._is_err(line), line
+    for line in ["ERROR: test_x (a.b.C.test_x)", "FAIL: test_x (a.b.C.test_x)", "Traceback (most recent call last):",
+                 '  File "/x/test.py", line 3, in test_x', "r = self.client.post(url)", "Ran 4 tests in 0.007s"]:
+        assert not pipeline._is_err(line), line
