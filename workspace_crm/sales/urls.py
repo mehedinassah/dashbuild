@@ -11,4 +11,5 @@ urlpatterns = [
     path("<int:pk>/delete/", views.SaleDeleteView.as_view(), name="delete"),
     path("<int:pk>/confirm/", views.confirm_sale_view, name="confirm_sale_view"),
     path("<int:pk>/cancel/", views.cancel_sale_view, name="cancel_sale_view"),
+    path("<int:pk>/pay/", views.record_payment_view, name="record_payment_view"),
 ]

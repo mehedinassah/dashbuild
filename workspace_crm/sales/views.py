@@ -9,6 +9,9 @@ from django.views.decorators.http import require_POST
 from sales.services import confirm_sale
 from sales.services import cancel_sale
 from sales.services import create_sale
+from decimal import Decimal, InvalidOperation
+from sales.models import Sale
+from sales.services import record_payment
 
 FIELDS = ["number", "date", "customer"]
 SEARCH_FIELDS = ["number"]
@@ -96,4 +99,24 @@ def cancel_sale_view(request, pk):
         messages.success(request, 'Sale cancelled.')
     except ValueError as e:
         messages.error(request, str(e))
+    return redirect('sales:list')
+
+
+@require_POST
+def record_payment_view(request, pk):
+    try:
+        amount = Decimal(request.POST.get('amount', ''))
+    except InvalidOperation:
+        messages.error(request, 'Enter a valid amount.')
+        return redirect('sales:list')
+
+    sale = get_object_or_404(Sale, pk=pk)
+
+    try:
+        record_payment(sale, amount)
+    except ValueError as e:
+        messages.error(request, str(e))
+    else:
+        messages.success(request, 'Payment recorded.')
+
     return redirect('sales:list')
