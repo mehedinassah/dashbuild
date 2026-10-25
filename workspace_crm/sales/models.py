@@ -29,6 +29,13 @@ class Sale(models.Model):
             total += payment.amount
         return total
 
+    def balance_due(self):
+        total_paid = Decimal('0.00')
+        for payment in self.payment_set.all():
+            total_paid += payment.amount
+        due = self.total - total_paid
+        return max(due, Decimal('0.00'))
+
 
 class Payment(models.Model):
     sale = models.ForeignKey('sales.Sale', on_delete=models.PROTECT)
