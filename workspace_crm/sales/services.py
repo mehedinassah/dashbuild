@@ -67,3 +67,12 @@ def record_payment(sale, amount):
 def total_revenue():
     confirmed_sales = Sale.objects.filter(confirmed=True)
     return sum(sale.total for sale in confirmed_sales)
+
+
+def outstanding_balance():
+    from sales.models import Sale
+    confirmed_sales = Sale.objects.filter(confirmed=True)
+    total_outstanding = Decimal('0.00')
+    for sale in confirmed_sales:
+        total_outstanding += sale.balance_due()
+    return total_outstanding
