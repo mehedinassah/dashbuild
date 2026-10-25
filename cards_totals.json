@@ -1,0 +1,6 @@
+{"cards": [
+ {"app": "sales", "kind": "service", "class": "", "name": "confirm_sale", "mode": "change", "tag": "refresh_total",
+  "spec": "When confirm_sale succeeds, the sale's stored total equals the sum of its items' line totals: call sale.calculate_total() and save the sale. A failed confirmation (already confirmed, not enough stock) still changes nothing. Everything else confirm_sale does stays the same."},
+ {"app": "sales", "kind": "model", "class": "Sale", "name": "balance_due",
+  "spec": "balance_due returns the sale's stored total minus amount_paid() as a Decimal, and never less than Decimal('0.00')."}
+]}
