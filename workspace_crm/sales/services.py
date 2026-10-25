@@ -62,3 +62,8 @@ def record_payment(sale, amount):
         raise ValueError('Amount must be positive')
     payment = Payment.objects.create(sale=sale, amount=amount, paid_on=datetime.date.today())
     return payment
+
+
+def total_revenue():
+    confirmed_sales = Sale.objects.filter(confirmed=True)
+    return sum(sale.total for sale in confirmed_sales)
