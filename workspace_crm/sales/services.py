@@ -4,6 +4,8 @@ from sales.models import Sale
 from decimal import Decimal
 from sales.models import Payment
 import datetime
+from django.db.models.functions import TruncMonth
+from django.db.models import Sum
 
 
 def confirm_sale(sale):
@@ -76,3 +78,26 @@ def outstanding_balance():
     for sale in confirmed_sales:
         total_outstanding += sale.balance_due()
     return total_outstanding
+
+
+def sales_by_month():
+    # Get all confirmed sales
+    confirmed_sales = Sale.objects.filter(confirmed=True)
+
+    if not confirmed_sales.exists():
+        return []
+
+    # Group by month and sum the totals
+    monthly_totals = (confirmed_sales
+                      .annotate(month=TruncMonth('date'))
+                      .values('month')
+                      .annotate(total=Sum('total'))
+                      .order_by('month'))
+
+    # Format the result as a list of tuples
+    result = [
+        (str(entry['month']).split('-')[0] + '-' + str(entry['month']).split('-')[1], Decimal(str(entry['total']))) 
+        for entry in monthly_totals
+    ]
+
+    return result
