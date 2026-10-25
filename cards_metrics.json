@@ -1,0 +1,12 @@
+{"cards": [
+ {"app": "sales", "kind": "service", "class": "", "name": "total_revenue",
+  "spec": "total_revenue() takes no arguments and returns the sum of the total of all confirmed sales as a Decimal. It returns Decimal('0.00') when there are none. Unconfirmed sales are not counted."},
+ {"app": "sales", "kind": "service", "class": "", "name": "outstanding_balance",
+  "spec": "outstanding_balance() takes no arguments and returns the sum of balance_due() over all confirmed sales as a Decimal, or Decimal('0.00') when there are none. Unconfirmed sales are not counted."},
+ {"app": "sales", "kind": "service", "class": "", "name": "sales_by_month",
+  "spec": "sales_by_month() takes no arguments and returns a list of (month, total) tuples, oldest first. month is a string like '2023-10' from the sale date, total is the Decimal sum of the totals of confirmed sales in that month. Unconfirmed sales are not counted. It returns an empty list when there are no confirmed sales."},
+ {"app": "sales", "kind": "service", "class": "", "name": "top_customers",
+  "spec": "top_customers(limit=5) returns a list of (customer, total) tuples, highest total first, at most limit entries. total is the Decimal sum of the totals of that customer's confirmed sales. Customers with no confirmed sales are not included."},
+ {"app": "products", "kind": "service", "class": "", "name": "low_stock_products",
+  "spec": "low_stock_products(threshold=5) returns a list of Product objects whose stock is less than or equal to threshold, ordered by stock ascending and then by name. Products with more stock than threshold are not included."}
+]}
