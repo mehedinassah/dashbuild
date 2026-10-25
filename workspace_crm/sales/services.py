@@ -17,12 +17,16 @@ def confirm_sale(sale):
         if item.quantity > product.stock:
             raise ValueError(f"Insufficient stock for {product.name}")
 
+    # Calculate the total before any changes
+    calculated_total = sale.calculate_total()
+
     # If all items are available, reduce stock for each item
     for item in sale.saleitem_set.all():
         reduce_stock(item.product, item.quantity)
 
     # Set confirmed to True and save the sale
     sale.confirmed = True
+    sale.total = calculated_total
     sale.save()
 
 
