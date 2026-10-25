@@ -66,6 +66,32 @@ class SmokeTest(TestCase):
 urlpatterns = [path("sales/", include("sales.urls"))]
 ''',
     "core/__init__.py": "",
+    "core/modules.py": '''def crud_modules(counts=False, recent=0, path=""):
+    return [{"title": "Sales", "url": "/sales/", "icon": "x", "count": 1, "recent": ["a"]}]
+''',
+    "core/views.py": '''from django.shortcuts import render
+
+from .modules import crud_modules
+
+
+def dashboard(request):
+    cards = crud_modules(counts=True, recent=5, path=request.path)
+    total = sum(card.get("count", 0) for card in cards)
+    return render(request, "core/dashboard.html", {"cards": cards, "total": total})
+''',
+    "core/templates/core/dashboard.html": '''{% extends "core/base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="head">
+  <h1>Dashboard</h1>
+</div>
+<div class="cards">
+  {% for card in cards %}
+  <a class="card" href="{{ card.url }}"><span class="num">{{ card.count }}</span></a>
+  {% endfor %}
+</div>
+{% endblock %}
+''',
     "core/templates/core/base.html": '''<!doctype html>
 <html>
 <head>

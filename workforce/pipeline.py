@@ -28,7 +28,7 @@ JUNK_WORDS = ("invalid", "malformed", "wrong", "garbage", "junk")
 
 # ---------- cards ----------
 def card_id(c):
-    tag = f"_{c['tag']}" if c.get("tag") else ""
+    tag = f"_{c['tag']}" if c.get("tag") else ("_tile" if c.get("kind") == "tile" else "")
     return f"{c['app']}_{(c.get('class') or 'func')}_{c['name']}{tag}".lower()
 
 
@@ -671,6 +671,9 @@ def run_card(ws, card, model=None, attempts=None, log=print):
     if card.get("kind") == "class":
         from .fields import run_class_card
         return run_class_card(ws, card, log)
+    if card.get("kind") == "tile":
+        from .dashtiles import run_tile_card
+        return run_tile_card(ws, card, log)
     model = model or CFG["model"]
     attempts = attempts or CFG.get("card_attempts", 5)
     ws = Path(ws)

@@ -1,0 +1,12 @@
+{"cards": [
+ {"app": "sales", "kind": "tile", "name": "total_revenue", "label": "Revenue", "style": "money",
+  "spec": "Shows the total revenue of confirmed sales as a tile on the dashboard."},
+ {"app": "sales", "kind": "tile", "name": "outstanding_balance", "label": "Outstanding", "style": "money",
+  "spec": "Shows the money customers still owe on confirmed sales as a tile on the dashboard."},
+ {"app": "sales", "kind": "tile", "name": "sales_by_month", "label": "Sales by month", "style": "bars",
+  "spec": "Shows confirmed sales per month as a bar chart on the dashboard."},
+ {"app": "sales", "kind": "tile", "name": "top_customers", "label": "Top customers", "style": "list",
+  "spec": "Shows the customers with the highest confirmed sales on the dashboard."},
+ {"app": "products", "kind": "tile", "name": "low_stock_products", "label": "Low stock", "style": "list",
+  "spec": "Shows products that are running out of stock on the dashboard."}
+]}

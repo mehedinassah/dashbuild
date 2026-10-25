@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ollama import chat
 
-from . import fields, wiring
+from . import dashtiles, fields, wiring
 from .config import CFG
 from .notes import project_map, scan
 from .pipeline import PROMPTS, card_id
@@ -30,10 +30,10 @@ def validate_cards(ws, cards):
         c0 = c
         c = {k: (str(c.get(k) or "")).strip() for k in
              ("app", "kind", "class", "name", "spec", "mode", "tag", "definition",
-              "url", "button", "show_if", "url_name", "input", "column")}
+              "url", "button", "show_if", "url_name", "input", "column", "label", "style")}
         fl = c0.get("fields") if isinstance(c0.get("fields"), list) else []
-        if c["kind"] not in ("model", "service", "field", "view", "class"):
-            problems.append(f"{tag}: kind must be 'model', 'service', 'field', 'view' or 'class'")
+        if c["kind"] not in ("model", "service", "field", "view", "class", "tile"):
+            problems.append(f"{tag}: kind must be 'model', 'service', 'field', 'view', 'class' or 'tile'")
             continue
         if c["app"] not in apps:
             problems.append(f"{tag}: app '{c['app']}' does not exist (apps: {', '.join(apps)})")
@@ -48,7 +48,13 @@ def validate_cards(ws, cards):
         if not (10 if c["kind"] == "field" else 25) <= len(c["spec"]) <= 500:
             problems.append(f"{tag}: spec must be 25-500 characters")
             continue
-        if c["kind"] == "class":
+        if c["kind"] == "tile":
+            bad = dashtiles.check_tile_card(c)
+            if bad:
+                problems.append(f"{tag}: {bad}")
+                continue
+            c["class"] = c["mode"] = c["tag"] = ""
+        elif c["kind"] == "class":
             bad = None
             if c["name"] in apps[c["app"]]:
                 bad = f"class {c['name']} already exists in {c['app']}"
@@ -197,7 +203,7 @@ REPAIR_SKIP = ("the existing tests are not green", "makemigrations", "needs a Dj
 
 
 def repairable(card, reason):
-    return card.get("kind") not in ("field", "class") and not any(k in (reason or "") for k in REPAIR_SKIP)
+    return card.get("kind") not in ("field", "class", "tile") and not any(k in (reason or "") for k in REPAIR_SKIP)
 
 
 def repair_spec(ws, card, reason, model=None, chat_fn=None, tries=2):

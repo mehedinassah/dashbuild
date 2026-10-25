@@ -1327,3 +1327,106 @@ def test_every_kind_of_exception_line_is_recognised():
     for line in ["ERROR: test_x (a.b.C.test_x)", "FAIL: test_x (a.b.C.test_x)", "Traceback (most recent call last):",
                  '  File "/x/test.py", line 3, in test_x', "r = self.client.post(url)", "Ran 4 tests in 0.007s"]:
         assert not pipeline._is_err(line), line
+
+
+# ---------- v21: dashboard tiles ----------
+TILE_SERVICES = '''from decimal import Decimal
+
+
+def answer():
+    return Decimal("1234.5")
+
+
+def months():
+    return [("2023-09", Decimal("10")), ("2023-10", Decimal("30"))]
+
+
+def people():
+    return [("Ann", Decimal("5")), ("Bob", Decimal("2.5"))]
+
+
+def broken():
+    raise RuntimeError("boom")
+
+
+def needs_arg(x):
+    return x
+'''
+TILE = {"app": "sales", "kind": "tile", "name": "answer", "label": "Revenue", "style": "money",
+        "spec": "Shows the revenue number on the dashboard."}
+
+
+@pytest.fixture
+def tws(ws):
+    (ws / "sales/services.py").write_text(TILE_SERVICES)
+    subprocess.run(["git", "add", "-A"], cwd=ws)
+    subprocess.run(["git", "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-qm", "svc"], cwd=ws)
+    return ws
+
+
+def test_tile_cards_are_validated_and_have_their_own_id(ws):
+    from workforce import dashtiles
+    ok, probs = rules_mod.validate_cards(ws, [dict(TILE), dict(TILE, kind="service", label="", style="")])
+    assert not probs and {pipeline.card_id(c) for c in ok} == {"sales_func_answer_tile", "sales_func_answer"}
+    assert "style" in dashtiles.check_tile_card(dict(TILE, style="pie"))
+    assert "label" in dashtiles.check_tile_card(dict(TILE, label="<b>"))
+    assert not rules_mod.repairable(TILE, "x")
+
+
+def test_tile_function_must_exist_and_take_no_arguments(tws):
+    from workforce import dashtiles
+    assert dashtiles.function_ok(tws, "sales", "answer") is None
+    assert "does not exist" in dashtiles.function_ok(tws, "sales", "nope")
+    assert "arguments" in dashtiles.function_ok(tws, "sales", "needs_arg")
+
+
+def test_tile_card_puts_the_value_on_the_dashboard(tws):
+    r = pipeline.run_card(tws, dict(TILE), "none", log=quiet)
+    assert r["status"] == "passed", r["reason"]
+    assert "core/dashboard_tiles.py" in r["files"] and "core/templates/core/_metrics.html" in r["files"]
+    assert "metrics()" in (tws / "core/views.py").read_text()
+    assert "_metrics.html" in (tws / "core/templates/core/dashboard.html").read_text()
+    out = subprocess.run([sys.executable, "manage.py", "shell", "-c",
+                          "from django.test import RequestFactory\nfrom core.views import dashboard\n"
+                          "print(dashboard(RequestFactory().get('/')).content.decode())"],
+                         cwd=tws, capture_output=True, text=True).stdout
+    assert "1,234.50" in out and "Revenue" in out
+
+
+def test_second_tile_is_added_without_duplicating_the_wiring(tws):
+    pipeline.run_card(tws, dict(TILE), "none", log=quiet)
+    r = pipeline.run_card(tws, dict(TILE, name="months", label="By month", style="bars"), "none", log=quiet)
+    assert r["status"] == "passed", r["reason"]
+    assert (tws / "core/views.py").read_text().count("metrics()") == 1
+    assert (tws / "core/templates/core/dashboard.html").read_text().count("_metrics.html") == 1
+    from workforce import dashtiles
+    assert [t["label"] for t in dashtiles.read_tiles((tws / "core/dashboard_tiles.py").read_text())] == ["Revenue", "By month"]
+    again = pipeline.run_card(tws, dict(TILE), "none", log=quiet)  # same tile again replaces, never duplicates
+    assert len(dashtiles.read_tiles((tws / "core/dashboard_tiles.py").read_text())) == 2
+
+
+def test_tile_data_formats_each_style(tws):
+    pipeline.run_card(tws, dict(TILE), "none", log=quiet)
+    sys.path.insert(0, str(tws))
+    import importlib
+    mod = importlib.import_module("core.dashboard_tiles")
+    from decimal import Decimal
+    assert mod.tile_data("number", 7) == {"kind": "stat", "display": "7"}
+    bars = mod.tile_data("bars", [("a", Decimal("10")), ("b", Decimal("5"))])["bars"]
+    assert [b["pct"] for b in bars] == [100, 50]
+    assert mod.tile_data("bars", [("a", Decimal("0"))])["bars"][0]["pct"] == 0
+    assert mod.tile_data("list", [("Ann", Decimal("5"))])["items"] == ["Ann — 5.00"]
+    assert mod.tile_data("list", [])["items"] == []
+    sys.path.remove(str(tws))
+    for m in [k for k in sys.modules if k == "core" or k.startswith("core.")]:
+        sys.modules.pop(m, None)
+
+
+def test_tile_card_failures_leave_the_project_untouched(tws):
+    before = (tws / "core/views.py").read_text()
+    r = pipeline.run_card(tws, dict(TILE, name="broken"), "none", log=quiet)
+    assert r["status"] == "failed" and "n/a" in r["reason"]
+    assert (tws / "core/views.py").read_text() == before
+    assert not (tws / "core/dashboard_tiles.py").exists() and git_clean(tws)
+    r = pipeline.run_card(tws, dict(TILE, name="needs_arg"), "none", log=quiet)
+    assert r["status"] == "failed" and "arguments" in r["reason"]
