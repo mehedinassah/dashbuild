@@ -101,3 +101,25 @@ def sales_by_month():
     ]
 
     return result
+
+
+def top_customers(limit=5):
+    from sales.models import Sale
+    from customers.models import Customer
+
+    # Get all confirmed sales
+    confirmed_sales = Sale.objects.filter(confirmed=True)
+
+    # Group sales by customer and sum the totals
+    customer_totals = {}
+    for sale in confirmed_sales:
+        customer = sale.customer
+        if customer not in customer_totals:
+            customer_totals[customer] = Decimal('0.00')
+        customer_totals[customer] += sale.total
+
+    # Sort customers by total spent in descending order
+    sorted_customers = sorted(customer_totals.items(), key=lambda x: x[1], reverse=True)
+
+    # Return the top 'limit' customers as a list of (customer, total) tuples
+    return sorted_customers[:limit]
