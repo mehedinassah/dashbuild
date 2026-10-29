@@ -1,0 +1,2 @@
+[{"app": "products", "kind": "service", "class": "", "name": "low_stock_products",
+  "spec": "low_stock_products(threshold=5) returns a list of Product objects whose stock is strictly less than threshold, ordered by stock ascending, then by name. A product with stock equal to threshold is NOT included. Called with no argument it uses threshold 5, so a product with stock 4 is included and products with stock 5 and 6 are not."}]
