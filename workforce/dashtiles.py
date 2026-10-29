@@ -27,10 +27,10 @@ def _num(x):
 
 def _item(r):
     if isinstance(r, tuple) and len(r) == 2:
-        return f"{r[0]} \\u2014 {_num(r[1])}"
+        return {"label": str(r[0]), "value": _num(r[1])}
     if hasattr(r, "stock"):
-        return f"{r} \\u2014 {r.stock} left"
-    return str(r)
+        return {"label": str(r), "value": f"{r.stock} left"}
+    return {"label": str(r), "value": ""}
 
 
 def tile_data(style, value):
@@ -46,7 +46,7 @@ def tile_data(style, value):
         return {"kind": "panel", "bars": [
             {"label": str(r[0]), "value": _num(r[1]), "pct": int(100 * n / top) if top else 0}
             for r, n in zip(rows, nums)]}
-    return {"kind": "panel", "items": [_item(r) for r in rows]}
+    return {"kind": "panel", "rows": [_item(r) for r in rows]}
 
 
 def metrics():
@@ -61,20 +61,75 @@ def metrics():
     return out
 '''
 
-METRICS_HTML = '''{% if metrics %}
-<div class="cards">
-  {% for m in metrics %}{% if m.kind == "stat" %}
-  <div class="card"><span class="num">{{ m.display }}</span><span class="label">{{ m.label }}</span></div>
-  {% endif %}{% endfor %}
+DASH_CSS = '''<style>
+.dash{--bg:#131a2b;--line:#232d45;--text:#e8ecf4;--muted:#8b96ab;--accent:#38bdf8;max-width:1240px}
+.dash h1{margin:0;font-size:1.6rem;font-weight:650;color:var(--text)}
+.dash .sub{color:var(--muted);margin:.3rem 0 .5rem}
+.dash .sec{font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:2rem 0 .75rem;font-weight:600}
+.dash .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:1rem}
+.dash .kpi{display:flex;flex-direction:column;gap:.35rem;padding:1.1rem 1.25rem;background:var(--bg);border:1px solid var(--line);border-radius:12px;color:var(--text);text-decoration:none}
+.dash a.kpi:hover{border-color:var(--accent)}
+.dash .kpi .val{font-size:1.9rem;font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums}
+.dash .kpi .lbl{color:var(--muted);font-size:.85rem}
+.dash .row3{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:1rem}
+.dash .box{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:1.1rem 1.25rem}
+.dash .box h3{margin:0 0 .6rem;font-size:.95rem;font-weight:600;color:var(--text)}
+.dash .li{display:flex;justify-content:space-between;gap:1rem;padding:.5rem 0;border-top:1px solid var(--line);font-size:.9rem;color:var(--text)}
+.dash .box h3 + .li{border-top:0}
+.dash .li span:last-child{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.dash .bar{margin:.55rem 0}
+.dash .bar .li{border:0;padding:0 0 .3rem}
+.dash .track{height:6px;border-radius:3px;background:var(--line)}
+.dash .fill{height:6px;border-radius:3px;background:var(--accent)}
+.dash .empty{color:var(--muted);font-size:.9rem;margin:.25rem 0}
+.dash .more{display:inline-block;margin-top:.7rem;color:var(--accent);font-size:.85rem;text-decoration:none}
+</style>
+'''
+
+DASHBOARD_HTML = '''{% extends "core/base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+{# dash-v2: written by the autopilot, edit freely #}
+''' + DASH_CSS + '''<div class="dash">
+  <h1>Dashboard</h1>
+  <p class="sub">{{ total }} records across {{ cards|length }} modules</p>
+  {% include "core/_metrics.html" %}
+  <div class="sec">Modules</div>
+  <div class="kpis">
+    {% for card in cards %}
+    <a class="kpi" href="{{ card.url }}"><span class="val">{{ card.count }}</span><span class="lbl">{{ card.icon }} {{ card.title }}</span></a>
+    {% empty %}
+    <p class="empty">No modules yet. Create one with: ./wf make crud Product name:str price:decimal</p>
+    {% endfor %}
+  </div>
+  <div class="sec">Recent activity</div>
+  <div class="row3">
+    {% for card in cards %}
+    <div class="box">
+      <h3>{{ card.icon }} {{ card.title }}</h3>
+      {% if card.recent %}{% for r in card.recent %}<div class="li"><span>{{ r }}</span></div>{% endfor %}
+      {% else %}<p class="empty">Nothing yet.</p>{% endif %}
+      <a class="more" href="{{ card.url }}">View all &rarr;</a>
+    </div>
+    {% endfor %}
+  </div>
 </div>
-<div class="grid2">
+{% endblock %}
+'''
+
+METRICS_HTML = '''{% if metrics %}
+<div class="sec">Overview</div>
+<div class="kpis">
+  {% for m in metrics %}{% if m.kind == "stat" %}<div class="kpi"><span class="val">{{ m.display }}</span><span class="lbl">{{ m.label }}</span></div>{% endif %}{% endfor %}
+</div>
+<div class="row3" style="margin-top:1rem">
   {% for m in metrics %}{% if m.kind == "panel" %}
-  <section class="panel wide">
-    <h2>{{ m.label }}</h2>
-    {% if m.items %}<ul class="recent">{% for i in m.items %}<li>{{ i }}</li>{% endfor %}</ul>
-    {% elif m.bars %}{% for b in m.bars %}<div style="margin:.4rem 0"><div style="display:flex;justify-content:space-between"><span>{{ b.label }}</span><span>{{ b.value }}</span></div><div style="height:8px;border-radius:4px;background:var(--surface)"><div style="height:8px;border-radius:4px;width:{{ b.pct }}%;background:var(--accent)"></div></div></div>{% endfor %}
-    {% else %}<p class="muted">Nothing yet.</p>{% endif %}
-  </section>
+  <div class="box">
+    <h3>{{ m.label }}</h3>
+    {% if m.rows %}{% for i in m.rows %}<div class="li"><span>{{ i.label }}</span><span>{{ i.value }}</span></div>{% endfor %}
+    {% elif m.bars %}{% for b in m.bars %}<div class="bar"><div class="li"><span>{{ b.label }}</span><span>{{ b.value }}</span></div><div class="track"><div class="fill" style="width:{{ b.pct }}%"></div></div></div>{% endfor %}
+    {% else %}<p class="empty">Nothing yet.</p>{% endif %}
+  </div>
   {% endif %}{% endfor %}
 </div>
 {% endif %}
@@ -134,12 +189,35 @@ def patch_view(src):
 
 
 def patch_template(src):
-    if "_metrics.html" in src:
+    if "dash-v2" in src:
         return src, None
-    marker = '<div class="cards">'
-    if marker not in src:
+    if '<div class="cards">' not in src and "_metrics.html" not in src:
         return None, "the dashboard template has no <div class=\"cards\"> block"
-    return src.replace(marker, '{% include "core/_metrics.html" %}\n' + marker, 1), None
+    return DASHBOARD_HTML, None
+
+
+def refresh(ws):
+    """Bring an existing project's dashboard files to the current design. -> list of files written."""
+    ws = Path(ws)
+    core, _, _ = find_core(ws)
+    if core is None:
+        return []
+    tpl_p = ws / core / "templates" / core / "dashboard.html"
+    inc_p = ws / core / "templates" / core / "_metrics.html"
+    tiles_p = ws / core / "dashboard_tiles.py"
+    if not (tpl_p.exists() and tiles_p.exists()):
+        return []
+    tiles = read_tiles(tiles_p.read_text())
+    new_tpl, err = patch_template(tpl_p.read_text())
+    if err:
+        return []
+    out = []
+    for p, text in ((tpl_p, new_tpl), (inc_p, METRICS_HTML),
+                    (tiles_p, TILES_SOURCE % {"tiles": pprint.pformat(tiles, width=100, sort_dicts=False)})):
+        if not p.exists() or p.read_text() != text:
+            p.write_text(text)
+            out.append(str(p))
+    return out
 
 
 def apply_tile(ws, card):

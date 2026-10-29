@@ -1415,8 +1415,8 @@ def test_tile_data_formats_each_style(tws):
     bars = mod.tile_data("bars", [("a", Decimal("10")), ("b", Decimal("5"))])["bars"]
     assert [b["pct"] for b in bars] == [100, 50]
     assert mod.tile_data("bars", [("a", Decimal("0"))])["bars"][0]["pct"] == 0
-    assert mod.tile_data("list", [("Ann", Decimal("5"))])["items"] == ["Ann — 5.00"]
-    assert mod.tile_data("list", [])["items"] == []
+    assert mod.tile_data("list", [("Ann", Decimal("5"))])["rows"] == [{"label": "Ann", "value": "5.00"}]
+    assert mod.tile_data("list", [])["rows"] == []
     sys.path.remove(str(tws))
     for m in [k for k in sys.modules if k == "core" or k.startswith("core.")]:
         sys.modules.pop(m, None)
@@ -1430,3 +1430,22 @@ def test_tile_card_failures_leave_the_project_untouched(tws):
     assert not (tws / "core/dashboard_tiles.py").exists() and git_clean(tws)
     r = pipeline.run_card(tws, dict(TILE, name="needs_arg"), "none", log=quiet)
     assert r["status"] == "failed" and "arguments" in r["reason"]
+
+
+def test_dashboard_template_never_reads_the_dict_items_method(tws):
+    from workforce import dashtiles
+    """Django resolves m.items to dict.items(); the tile data must not use that key."""
+    assert "m.items" not in dashtiles.METRICS_HTML and "m.items" not in dashtiles.DASHBOARD_HTML
+
+
+def test_refresh_upgrades_an_existing_dashboard_and_is_idempotent(tws):
+    from workforce import dashtiles
+    pipeline.run_card(tws, dict(TILE), "none", log=quiet)
+    (tws / "core/templates/core/dashboard.html").write_text(
+        '{% extends "core/base.html" %}{% block content %}<div class="cards"></div>'
+        '{% include "core/_metrics.html" %}{% endblock %}')
+    changed = dashtiles.refresh(tws)
+    assert any(c.endswith("dashboard.html") for c in changed)
+    assert "dash-v2" in (tws / "core/templates/core/dashboard.html").read_text()
+    assert len(dashtiles.read_tiles((tws / "core/dashboard_tiles.py").read_text())) == 1
+    assert dashtiles.refresh(tws) == []

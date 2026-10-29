@@ -18,10 +18,10 @@ def _num(x):
 
 def _item(r):
     if isinstance(r, tuple) and len(r) == 2:
-        return f"{r[0]} \u2014 {_num(r[1])}"
+        return {"label": str(r[0]), "value": _num(r[1])}
     if hasattr(r, "stock"):
-        return f"{r} \u2014 {r.stock} left"
-    return str(r)
+        return {"label": str(r), "value": f"{r.stock} left"}
+    return {"label": str(r), "value": ""}
 
 
 def tile_data(style, value):
@@ -37,7 +37,7 @@ def tile_data(style, value):
         return {"kind": "panel", "bars": [
             {"label": str(r[0]), "value": _num(r[1]), "pct": int(100 * n / top) if top else 0}
             for r, n in zip(rows, nums)]}
-    return {"kind": "panel", "items": [_item(r) for r in rows]}
+    return {"kind": "panel", "rows": [_item(r) for r in rows]}
 
 
 def metrics():

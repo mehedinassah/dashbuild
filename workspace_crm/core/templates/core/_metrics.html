@@ -1,17 +1,16 @@
 {% if metrics %}
-<div class="cards">
-  {% for m in metrics %}{% if m.kind == "stat" %}
-  <div class="card"><span class="num">{{ m.display }}</span><span class="label">{{ m.label }}</span></div>
-  {% endif %}{% endfor %}
+<div class="sec">Overview</div>
+<div class="kpis">
+  {% for m in metrics %}{% if m.kind == "stat" %}<div class="kpi"><span class="val">{{ m.display }}</span><span class="lbl">{{ m.label }}</span></div>{% endif %}{% endfor %}
 </div>
-<div class="grid2">
+<div class="row3" style="margin-top:1rem">
   {% for m in metrics %}{% if m.kind == "panel" %}
-  <section class="panel wide">
-    <h2>{{ m.label }}</h2>
-    {% if m.items %}<ul class="recent">{% for i in m.items %}<li>{{ i }}</li>{% endfor %}</ul>
-    {% elif m.bars %}{% for b in m.bars %}<div style="margin:.4rem 0"><div style="display:flex;justify-content:space-between"><span>{{ b.label }}</span><span>{{ b.value }}</span></div><div style="height:8px;border-radius:4px;background:var(--surface)"><div style="height:8px;border-radius:4px;width:{{ b.pct }}%;background:var(--accent)"></div></div></div>{% endfor %}
-    {% else %}<p class="muted">Nothing yet.</p>{% endif %}
-  </section>
+  <div class="box">
+    <h3>{{ m.label }}</h3>
+    {% if m.rows %}{% for i in m.rows %}<div class="li"><span>{{ i.label }}</span><span>{{ i.value }}</span></div>{% endfor %}
+    {% elif m.bars %}{% for b in m.bars %}<div class="bar"><div class="li"><span>{{ b.label }}</span><span>{{ b.value }}</span></div><div class="track"><div class="fill" style="width:{{ b.pct }}%"></div></div></div>{% endfor %}
+    {% else %}<p class="empty">Nothing yet.</p>{% endif %}
+  </div>
   {% endif %}{% endfor %}
 </div>
 {% endif %}
