@@ -112,4 +112,4 @@ cards_*.json   example card files
 
 ## Credits and license
 
-Built by Mehedi Hassan with design and coding help from Claude (Anthropic). MIT license, see `LICENSE`.
+Built and designed by Mehedi Hassan. MIT license, see `LICENSE`.
