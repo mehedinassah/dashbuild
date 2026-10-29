@@ -8,3 +8,9 @@ def reduce_stock(product, quantity):
         raise ValueError(f"Not enough stock: {product.stock} available, {quantity} requested")
     product.stock -= quantity
     product.save()
+
+
+def low_stock_products(threshold=5):
+    from products.models import Product
+    products = Product.objects.filter(stock__lt=threshold).order_by('stock', 'name')
+    return list(products)
