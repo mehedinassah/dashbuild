@@ -63,7 +63,7 @@ model rewrites the card's rule (never the tests) and tries again, up to twice.
 
 The agent built most of the demo CRM in `workspace_crm/`: line totals and sale totals, stock checks and reduction,
 confirm and cancel with rollback rules, customer rules, payments with a balance, the confirm / cancel / pay buttons
-with messages, a create-sale form and dashboard metrics. 130+ tests, all written by the agent under the checks above.
+with messages, a create-sale form and dashboard metrics. 106 tests, all written by the agent under the checks above.
 
 ## Results so far
 
@@ -97,8 +97,8 @@ made those steps reliable.
 
 ## Requirements
 
-Python 3.12+, [Ollama](https://ollama.com) with `ollama pull qwen3:14b`, and a virtual environment with `django`,
-`pytest` and `ollama`. The agent's settings are in `config.json` (model, attempts, minutes per card, backup folder).
+Python 3.14, [Ollama](https://ollama.com) with `ollama pull qwen3:14b`, and a virtual environment with `django` and
+`ollama`. The agent's settings are in `config.json` (model, attempts, minutes per card, backup folder).
 
 ## Layout
 
