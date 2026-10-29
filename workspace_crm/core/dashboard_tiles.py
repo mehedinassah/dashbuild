@@ -2,7 +2,8 @@
 from decimal import Decimal, InvalidOperation
 from importlib import import_module
 
-TILES = [{'label': 'Revenue', 'func': 'sales.services.total_revenue', 'style': 'money'}]
+TILES = [{'label': 'Revenue', 'func': 'sales.services.total_revenue', 'style': 'money'},
+ {'label': 'Outstanding', 'func': 'sales.services.outstanding_balance', 'style': 'money'}]
 
 
 def _num(x):
