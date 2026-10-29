@@ -1449,3 +1449,102 @@ def test_refresh_upgrades_an_existing_dashboard_and_is_idempotent(tws):
     assert "dash-v2" in (tws / "core/templates/core/dashboard.html").read_text()
     assert len(dashtiles.read_tiles((tws / "core/dashboard_tiles.py").read_text())) == 1
     assert dashtiles.refresh(tws) == []
+
+
+# ---------- v23: Python fixes imports, lessons, page check ----------
+def test_autofix_adds_known_and_project_model_imports(ws):
+    from workforce import codetools
+    src = ("from django.test import TestCase\n\nclass T(TestCase):\n    def test_a(self):\n"
+           "        self.assertEqual(Decimal('1'), Q(a=1))\n        Sale.objects.all()\n")
+    new, added = codetools.autofix_imports(src, ws)
+    assert "from decimal import Decimal" in new and "from django.db.models import Q" in new
+    assert "from sales.models import Sale" in new and len(added) == 3
+    assert codetools.autofix_imports(new, ws) == (new, [])
+
+
+def test_autofix_without_ws_never_imports_project_models_and_skips_unknown_names(ws):
+    from workforce import codetools
+    new, added = codetools.autofix_imports("def f():\n    return Sale.objects.count() + mystery()\n")
+    assert new.count("import") == 0 and added == []
+
+
+def test_autofix_leaves_broken_code_alone():
+    from workforce import codetools
+    assert codetools.autofix_imports("def f(:\n") == ("def f(:\n", [])
+
+
+def test_lessons_are_general_counted_and_fed_back(tmp_path):
+    from workforce import lessons
+    assert lessons.relevant(tmp_path) == ""
+    assert lessons.learn(tmp_path, "the tests are too weak: line 13: changed the number 5") is not None
+    lessons.learn(tmp_path, "the tests are too weak: line 99: changed the number 7")
+    lessons.learn(tmp_path, "REJECTED: uses a mock of the service")
+    block = lessons.relevant(tmp_path)
+    assert block.index("boundary") < block.index("mocks")   # the more frequent lesson comes first
+    assert "line 13" not in block and "line 99" not in block   # nothing card-specific is copied
+
+
+def test_lessons_ignore_failures_worth_forgetting(tmp_path):
+    from workforce import lessons
+    assert lessons.learn(tmp_path, "AssertionError: 4 != 3 on some line") is None
+    assert not (tmp_path / ".autopilot" / "lessons.json").exists()
+
+
+def test_pagecheck_passes_a_clean_project_and_finds_garbage_and_server_errors(ws):
+    from workforce import pagecheck
+    assert pagecheck.check(ws) == []
+    page = ws / "sales/templates/sales/list.html"
+    page.write_text('{% extends "sales/base.html" %}{% block content %}(&#x27;kind&#x27;, 1){% endblock %}')
+    bad = pagecheck.check(ws)
+    assert len(bad) == 1 and "raw Python tuple" in bad[0] and "/sales/" in bad[0]
+    page.write_text('{% extends "sales/base.html" %}{% block content %}{% url "nope" %}{% endblock %}')
+    assert "server error" in pagecheck.check(ws)[0]
+
+
+def test_pagecheck_reports_only_new_problems_and_never_blocks_when_it_cannot_run():
+    from workforce import pagecheck
+    assert pagecheck.new_problems(["a"], ["a", "b"]) == ["b"]
+    assert pagecheck.new_problems(None, ["b"]) == [] and pagecheck.new_problems([], None) == []
+
+
+def test_pagecheck_cannot_run_in_a_folder_without_django(tmp_path):
+    from workforce import pagecheck
+    assert pagecheck.check(tmp_path) is None
+
+
+def test_missing_imports_are_added_by_python_not_rejected(ws, monkeypatch):
+    no_import = GOOD_TESTS.replace("from decimal import Decimal\n", "")
+    assert "import Decimal" not in no_import
+    impl = "def line_total(self):\n    return Decimal(self.product.price) * self.quantity\n"
+    use(monkeypatch, Fake([no_import], [impl]))
+    r = pipeline.run_card(ws, CARD, "fake", log=quiet)
+    assert r["status"] == "passed" and r["attempts"] == 1, r["reason"]
+    assert "from decimal import Decimal" in (ws / "sales/test_saleitem_line_total.py").read_text()
+    assert "from decimal import Decimal" in (ws / "sales/models.py").read_text()
+
+
+def test_a_failed_attempt_becomes_a_lesson_shown_on_the_next_attempt(ws, monkeypatch):
+    seen = []
+    fake = Fake([WEAK_TESTS, GOOD_TESTS], [GOOD_IMPL, GOOD_IMPL])
+
+    def spy(model=None, messages=None, **kw):
+        seen.append(" ".join(str(m.get("content", "")) for m in messages if isinstance(m, dict)))
+        return fake(model=model, messages=messages, **kw)
+
+    use(monkeypatch, spy)
+    r = pipeline.run_card(ws, CARD, "fake", log=quiet)
+    assert r["status"] == "passed" and r["attempts"] == 2
+    assert "Lessons learned" not in seen[0]
+    assert any("Lessons learned" in s and "boundary" in s for s in seen[1:])
+    assert "boundary" in (ws / ".autopilot/lessons.json").read_text()
+
+
+def test_tile_card_is_undone_when_the_page_check_finds_new_garbage(tws, monkeypatch):
+    from workforce import pagecheck
+    calls = iter([[], ["GET /: raw Python tuple text ('(')"]])
+    monkeypatch.setattr(pagecheck, "check", lambda ws: next(calls))
+    before = (tws / "core/views.py").read_text()
+    r = pipeline.run_card(tws, dict(TILE), "none", log=quiet)
+    assert r["status"] == "failed" and "page check failed" in r["reason"]
+    assert (tws / "core/views.py").read_text() == before
+    assert not (tws / "core/dashboard_tiles.py").exists() and git_clean(tws)

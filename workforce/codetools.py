@@ -207,3 +207,85 @@ def split_imports(code):
     lines = text.splitlines()
     s, e = _span(rest[0])
     return ["\n".join(lines[n.lineno - 1:n.end_lineno]) for n in imps], "\n".join(lines[s:e])
+
+
+# ---------- Python fixes the imports the model forgets ----------
+KNOWN_IMPORTS = {
+    "Decimal": "from decimal import Decimal",
+    "InvalidOperation": "from decimal import InvalidOperation",
+    "date": "from datetime import date",
+    "datetime": "from datetime import datetime",
+    "timedelta": "from datetime import timedelta",
+    "timezone": "from django.utils import timezone",
+    "Q": "from django.db.models import Q",
+    "F": "from django.db.models import F",
+    "Sum": "from django.db.models import Sum",
+    "Count": "from django.db.models import Count",
+    "Avg": "from django.db.models import Avg",
+    "Max": "from django.db.models import Max",
+    "Min": "from django.db.models import Min",
+    "Coalesce": "from django.db.models.functions import Coalesce",
+    "transaction": "from django.db import transaction",
+    "messages": "from django.contrib import messages",
+    "reverse": "from django.urls import reverse",
+    "redirect": "from django.shortcuts import redirect",
+    "render": "from django.shortcuts import render",
+    "get_object_or_404": "from django.shortcuts import get_object_or_404",
+    "TestCase": "from django.test import TestCase",
+    "ValidationError": "from django.core.exceptions import ValidationError",
+    "json": "import json",
+    "math": "import math",
+}
+
+
+def _undefined(src):
+    try:
+        from pyflakes import api, reporter
+    except ImportError:
+        return []
+    import io
+    import re
+    out = io.StringIO()
+    api.check(src, "code", reporter.Reporter(out, out))
+    return sorted({m.group(1) for m in re.finditer(r"undefined name '(\w+)'", out.getvalue())})
+
+
+def project_models(ws):
+    """{ModelName: app} for every model class found in <app>/models.py."""
+    from pathlib import Path
+    found = {}
+    for p in sorted(Path(ws).glob("*/models.py")):
+        try:
+            tree = ast.parse(p.read_text())
+        except SyntaxError:
+            continue
+        for n in tree.body:
+            if isinstance(n, ast.ClassDef):
+                found.setdefault(n.name, p.parent.name)
+    return found
+
+
+def autofix_imports(src, ws=None):
+    """Add imports for well-known names the code uses but never imports. Python does this, not the model.
+    With ws given, the project's own models are fixed too (only use that for test files: in app code a
+    module-level model import can be circular). -> (new_src, [statements added])"""
+    try:
+        ast.parse(src)
+    except SyntaxError:
+        return src, []
+    table = dict(KNOWN_IMPORTS)
+    if ws is not None:
+        for name, app in project_models(ws).items():
+            table.setdefault(name, f"from {app}.models import {name}")
+    added = []
+    for name in _undefined(src):
+        stmt = table.get(name)
+        if not stmt:
+            continue
+        new, err = add_import(src, stmt)
+        if err or new is None:
+            continue
+        if new != src:
+            src = new
+            added.append(stmt)
+    return src, added

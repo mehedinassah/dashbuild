@@ -4,7 +4,7 @@ import tarfile
 import time
 from pathlib import Path
 
-from . import auto, pipeline
+from . import auto, pagecheck, pipeline
 from .config import CFG
 
 SKIP_DIRS = {".venv", "__pycache__", "node_modules", ".pytest_cache"}
@@ -54,6 +54,7 @@ def run_ship(args, out=print):
         auto.git(ws, "branch", "-D", branch, check=False)
         out(f"{branch} held no new work (every card failed or was declined). Branch removed.")
         return 0
+    pages_before = pagecheck.check(ws)
     r = auto.subprocess.run(["git", "merge", "--no-edit", branch], cwd=ws, capture_output=True, text=True)
     if r.returncode:
         auto.git(ws, "merge", "--abort", check=False)
@@ -64,6 +65,11 @@ def run_ship(args, out=print):
         auto.git(ws, "reset", "--hard", before)
         out("The merged project fails its tests, so the merge was undone. Branch kept.\n"
             + suite["output"][-600:])
+        return 1
+    bad = pagecheck.new_problems(pages_before, pagecheck.check(ws))
+    if bad:
+        auto.git(ws, "reset", "--hard", before)
+        out("The merged project has page problems, so the merge was undone. Branch kept.\n  " + "\n  ".join(bad[:5]))
         return 1
     auto.git(ws, "branch", "-d", branch, check=False)
     top = Path(auto.git(ws, "rev-parse", "--show-toplevel").strip())

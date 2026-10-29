@@ -14,7 +14,7 @@ import textwrap
 import time
 from pathlib import Path
 
-from . import codetools, mutation, wiring
+from . import codetools, lessons, mutation, pagecheck, wiring
 from .config import CFG
 from .notes import project_map
 from .tools import python_problem, undefined_names
@@ -445,10 +445,13 @@ def phase_tests(ws, card, model, feedback):
         Args:
             code: The full Python source of the test file.
         """
+        code, added = codetools.autofix_imports(code, ws)
         problem = check_tests(code, card)
         if problem:
+            lessons.learn(ws, problem)
             return "REJECTED: " + problem
         path.write_text(code.rstrip("\n") + "\n")
+        state["added"] = added
         r = run_suite(ws, label)
         good, why = classify_red(r["output"], r["ok"], card["name"])
         if not good:
@@ -460,11 +463,12 @@ def phase_tests(ws, card, model, feedback):
         state["wrote"] = True
         state["written"].add(str(path))
         return ("OK: the tests fail as they should, because the feature does not exist yet. "
-                "Reply DONE.")
+                + (f"Python added the missing imports for you: {'; '.join(state['added'])}. " if state["added"] else "")
+                + "Reply DONE.")
 
     task = (f"Card: {card['kind']} {card.get('class') or ''}.{card['name']}\n"
             f"Rule: {card['spec']}\n\nProject:\n{project_map(ws)}\n"
-            + change_note(ws, card, "tests") + view_source(ws, card))
+            + change_note(ws, card, "tests") + view_source(ws, card) + lessons.relevant(ws))
     if feedback:
         task += f"\nLast attempt failed because: {feedback}\n"
     res = run_worker(model=model, system=_prompt("card_tests.txt", card), task=task,
@@ -505,11 +509,13 @@ def phase_impl(ws, card, model, feedback):
             bad = wiring.wire_url(ws, card["app"], card["url"], card["name"])
             if bad:
                 return "REJECTED: " + bad
+        new, added = codetools.autofix_imports(new)
         target.write_text(new)
         state["written"].add(str(target))
         state["tests_passed"] = False
         new_und = refresh_undefined()
-        return "Saved." + (f" WARNING: {new_und[0]} (add the missing import)" if new_und else "")
+        return ("Saved." + (f" Python added the missing imports for you: {'; '.join(added)}." if added else "")
+                + (f" WARNING: {new_und[0]} (add the missing import)" if new_und else ""))
 
     def _check_name(code):
         fn, err = codetools.one_def(code)
@@ -593,7 +599,7 @@ def phase_impl(ws, card, model, feedback):
     tests_src = test_file(ws, card).read_text()
     task = (f"Card: {card['kind']} {cls or ''}.{card['name']}\nRule: {card['spec']}\n\n"
             f"Project:\n{project_map(ws)}\n\nLocked tests that must pass:\n{tests_src}\n"
-            + change_note(ws, card, "impl") + view_source(ws, card))
+            + change_note(ws, card, "impl") + view_source(ws, card) + lessons.relevant(ws))
     if feedback:
         task += f"\nLast attempt failed because: {feedback}\n"
     res = run_worker(model=model, system=_prompt("card_impl.txt", card), task=task, tools=tools,
@@ -695,7 +701,10 @@ def run_card(ws, card, model=None, attempts=None, log=print):
             urls_py.write_text(urls_original)
     feedback = ""
     budget = CFG.get("card_minutes", 12) * 60
+    pages_before = pagecheck.check(ws) if card["kind"] == "view" else None
     for n in range(1, attempts + 1):
+        if n > 1:
+            lessons.learn(ws, feedback)
         if n > 1 and time.time() - t0 > budget:
             log(f"[{result['id']}] time budget of {budget // 60} minutes used, stopping this card")
             feedback = f"stopped after {budget // 60} minutes (last problem: {feedback[:200]})"
@@ -739,6 +748,12 @@ def run_card(ws, card, model=None, attempts=None, log=print):
                     for path, text in changed.items():
                         path.write_text(text)
                     ok, why = False, "the pages stopped working after wiring them:\n" + summarize(chk["output"], 600)
+                else:
+                    bad = pagecheck.new_problems(pages_before, pagecheck.check(ws))
+                    if bad:
+                        for path, text in changed.items():
+                            path.write_text(text)
+                        ok, why = False, "page check failed after wiring: " + "; ".join(bad[:3])
         if ok:
             files = [str(target.relative_to(ws)), str(tf.relative_to(ws))]
             if card["kind"] == "view":
@@ -761,6 +776,7 @@ def run_card(ws, card, model=None, attempts=None, log=print):
     else:
         target.write_text(original)
     restore_urls()
+    lessons.learn(ws, feedback)
     result["reason"] = feedback
     result["seconds"] = round(time.time() - t0)
     return result

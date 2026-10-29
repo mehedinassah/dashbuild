@@ -278,6 +278,8 @@ def run_tile_card(ws, card, log=print):
     base = run_suite(ws)
     if not base["ok"]:
         return fail("the existing tests are not green, fix them first:\n" + base["output"][-600:])
+    from . import pagecheck
+    pages_before = pagecheck.check(ws)
     log(f"[{result['id']}] putting '{card['label']}' on the dashboard")
     changed, err = apply_tile(ws, card)
     if err:
@@ -301,6 +303,10 @@ def run_tile_card(ws, card, log=print):
         undo(changed)
         return fail(f"{card['name']}() raised an error on the real database, so the tile would show n/a. "
                     "Run it in `python manage.py shell` to see the error.")
+    bad = pagecheck.new_problems(pages_before, pagecheck.check(ws))
+    if bad:
+        undo(changed)
+        return fail("page check failed after adding the tile: " + "; ".join(bad[:3]))
     result.update(status="passed", files=[str(p.relative_to(ws)) for p in changed])
     result["seconds"] = round(time.time() - t0)
     return result
