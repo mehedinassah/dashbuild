@@ -2,11 +2,11 @@
 from decimal import Decimal, InvalidOperation
 from importlib import import_module
 
-TILES = [{'label': 'Low stock', 'func': 'products.services.low_stock_products', 'style': 'list'},
- {'label': 'Revenue', 'func': 'sales.services.total_revenue', 'style': 'money'},
+TILES = [{'label': 'Revenue', 'func': 'sales.services.total_revenue', 'style': 'money'},
  {'label': 'Outstanding', 'func': 'sales.services.outstanding_balance', 'style': 'money'},
  {'label': 'Sales by month', 'func': 'sales.services.sales_by_month', 'style': 'bars'},
- {'label': 'Top customers', 'func': 'sales.services.top_customers', 'style': 'list'}]
+ {'label': 'Top customers', 'func': 'sales.services.top_customers', 'style': 'list'},
+ {'label': 'Low stock', 'func': 'products.services.low_stock_products', 'style': 'list'}]
 
 
 def _num(x):
