@@ -4,7 +4,8 @@ from importlib import import_module
 
 TILES = [{'label': 'Revenue', 'func': 'sales.services.total_revenue', 'style': 'money'},
  {'label': 'Outstanding', 'func': 'sales.services.outstanding_balance', 'style': 'money'},
- {'label': 'Sales by month', 'func': 'sales.services.sales_by_month', 'style': 'bars'}]
+ {'label': 'Sales by month', 'func': 'sales.services.sales_by_month', 'style': 'bars'},
+ {'label': 'Top customers', 'func': 'sales.services.top_customers', 'style': 'list'}]
 
 
 def _num(x):
