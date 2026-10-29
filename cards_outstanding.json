@@ -1,0 +1,2 @@
+{"cards": [{"app": "sales", "kind": "service", "class": "", "name": "customer_outstanding",
+  "spec": "customer_outstanding(customer) returns the total of sale.balance_due() over the customer's confirmed sales (sale.confirmed is True), as a Decimal. Unconfirmed sales are not counted. A customer with no confirmed sales returns Decimal('0.00')."}]}
