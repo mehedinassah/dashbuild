@@ -112,3 +112,9 @@ cd ~ && tar czf ai-workforce-backup-$(date +%F).tar.gz --exclude=.venv --exclude
 - Rules the agent rewrote itself: none
 - Failed: none
 - Test suite after merge: 110 tests OK
+
+## Shipped 2026-10-29 14:41 (auto/20261029-144058)
+- Built: products_func_low_stock_products_tile, sales_func_top_customers_tile, sales_func_sales_by_month_tile, sales_func_outstanding_balance_tile, sales_func_total_revenue_tile
+- Rules the agent rewrote itself: none
+- Failed: none
+- Test suite after merge: 110 tests OK
