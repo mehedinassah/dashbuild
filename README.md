@@ -1,83 +1,115 @@
-# Local AI Workforce
+# dashbuild
 
-A small team of AI agents that runs fully on this laptop through Ollama.
-No cloud, no API keys, no cost. Open-weight models only.
+**A local AI coding agent that builds a Django app one small, tested change at a time.
+The model proposes. Python decides.**
 
-## How it works
+dashbuild runs on your own machine with an open-weight model through [Ollama](https://ollama.com). No cloud, no API
+costs. You describe a change as a short rule (a "card"). The model writes tests first, then the code. Plain Python
+checks the work and a human approves every change before it is committed.
 
-The model proposes, Python decides. The model can only act through tools,
-and every tool call passes checks written in plain Python.
+It was built to find out how far a small local model (14B parameters, 6 GB graphics card) can be trusted to write
+real business software when it is surrounded by strict, deterministic checks. The demo project is a small CRM that the
+agent built, card by card.
 
-    plan.json -> run_saved.py -> manager.run_task -> worker (coder) -> checks
-                                      |                                  |
-                                 you approve  <-- diff + reviewer note <-+
-                                      |
-                                 git commit
+## How a change is made
 
-## Files
+```
+ a card (one rule)  ->  baseline: the whole test suite is green
+        |
+        v
+ model writes TESTS first  ->  static checks (no mocks, real imports, no invented behaviour)
+        |                      tests must fail, and for the RIGHT reason (the feature is missing)
+        v
+ tests are LOCKED (SHA-256)  ->  model writes the CODE; it cannot touch the tests
+        |
+        v
+ gates (Python, no model):  tests unchanged | full suite green | test count exact |
+                            mutation score >= 70% (the tests must catch deliberately broken code)
+        |
+        v
+ you read the diff and type y or n  ->  commit on a branch  ->  ./wfa ship merges it
+```
 
-- workforce/tools.py    the tools and all the safety checks (most important file)
-- workforce/worker.py   the loop: one tool call at a time, repeat guard, reply cap
-- workforce/review.py   automated test-weakening check (blocks) + LLM reviewer (advisory only)
-- workforce/manager.py  attempts, clean reset between retries, approval prompt, commit
-- workforce/planner.py  the model proposes a task list (weak; hand-written plans are better)
-- run_saved.py [N]      runs plan.json, optionally starting at task N
-- manager_main.py       runs one task: python -u manager_main.py "task" MODEL FOLDER
-- agent.py              the old single-file agent, kept only for reference
-- workspace/            calculator practice project
-- workspace_crm/        Django project; .workforce.json holds its test command,
-                        allowed commands and project rules for the coder
+If a card fails, everything is rolled back and the failed tests are kept for inspection. After repeated failures the
+model rewrites the card's rule (never the tests) and tries again, up to twice.
 
-## Daily use
+## Card kinds
 
-    cd ~/ai-workforce && source .venv/bin/activate
-    # edit plan.json (one small task per file works best), then:
-    python -u run_saved.py          # or: python -u run_saved.py 3  to resume at task 3
+| Kind | What it does | Who does the work |
+|---|---|---|
+| `model` / `service` | One new method or function with its business rule | model, test-first |
+| `change` | Modify an existing function, old tests must keep passing | model, test-first |
+| `field` | Add a field and its migration | Python only |
+| `class` | Create a whole new model, migration and admin entry | Python only |
+| `view` | A screen action: route, button, input box, list column, messages | model writes view and tests, Python wires the pages |
+| `tile` | Put a metric on the dashboard (number, list or bar chart) | Python only |
 
-At each [y/N] prompt READ THE DIFF. The reviewer note is only a hint: the small
-model has approved broken work several times. Answer n to keep the changes in
-the folder, then fix by hand.
+```json
+{"app": "sales", "kind": "service", "class": "", "name": "record_payment",
+ "spec": "record_payment(sale, amount) creates and returns a Payment for that sale. If sale.confirmed is False raise ValueError('Sale is not confirmed'). If amount is not greater than zero raise ValueError('Amount must be positive'). In both cases create no Payment."}
+```
 
-## Rules that work with a 7B model
+## Commands
 
-- One task = one small change in one file. Tests for it in the next task.
-- Project wiring (settings.py, config/urls.py) is done by hand.
-- Always check the diff against the task wording.
-- Check that new tests can fail (temporarily break the code and watch them fail).
+```
+./wfa plan "one sentence"                  # the model drafts cards, you keep / drop / edit each
+./wfa auto --cards cards.json --no-design  # build the cards, approve each diff
+./wfa ship                                 # merge, run the tests, write the handoff, back up
+./wfa score                                # what each model has managed so far
+./wfa map                                  # the project map the agent sees
+```
 
-## Reset an unfinished task
+## What it has built
 
-    git reset -q -- workspace_crm && git checkout -- workspace_crm && git clean -fd -- workspace_crm
+The agent built most of the demo CRM in `workspace_crm/`: line totals and sale totals, stock checks and reduction,
+confirm and cancel with rollback rules, customer rules, payments with a balance, the confirm / cancel / pay buttons
+with messages, a create-sale form and dashboard metrics. 130+ tests, all written by the agent under the checks above.
 
-## Troubleshooting
+## Results so far
 
-- "Workspace has uncommitted changes": commit or run the reset line above.
-- Looks stuck: press Ctrl+C. Check "ollama ps" in another terminal. A step over
-  3 minutes is a problem; the reply cap is num_predict in workforce/worker.py.
-- Ollama errors: "ollama list" and "ollama ps"; log: journalctl -u ollama -n 50
-- Change the model: edit the model name in run_saved.py (or pass it to manager_main.py).
-  Any model with "tools" capability in "ollama show NAME" can be tried.
-- Run the unit tests after any code change: python -m pytest tests -q
+From `./wfa score`, covering all development runs (including early versions of the pipeline):
 
-## Known limits
+| Model | Cards tried | Passed | Passed first try | Avg time per card |
+|---|---|---|---|---|
+| qwen3:14b | 48 | 31 (65%) | 23 (48%) | 12 min |
+| qwen2.5:7b | 20 | 8 (40%) | 2 (10%) | 4 min |
+| Python-only cards (field, class) | 4 | 4 (100%) | 4 | 2 s |
 
-- The model forgets imports, duplicates code, drops half of a multi-file task,
-  and cannot reliably edit long framework files.
-- Its reviewer opinion cannot be trusted. Only the Python checks block.
-- Output quality depends on the model. Better free models arrive over time;
-  switching is a one-word change.
+Model size matters a lot, and moving mechanical work (fields, models, page wiring) out of the model and into Python
+made those steps reliable.
 
-## Generator (no AI)
+## What went wrong, and what it taught the pipeline
 
-    ./wf make crud Product name:str sku:str price:decimal stock:int
+- **A fake mock.** The model "mocked" a service by reassigning a local variable, which does nothing. Now any test
+  that mentions mocking or patching is rejected.
+- **The wrong exception.** `Decimal('abc')` raises `InvalidOperation`, not `ValueError`. The model repeated the same
+  broken view five times, and the test runner only reported "failed". Now the real exception is shown to the model,
+  and the instructions state the fact.
+- **A test that contradicted its own rule.** It posted a total of 100.00 and asserted 100.00, while the service always
+  sets 0.00. Now five identical failures end the attempt and blame the tests, and a repair step rewrites the rule.
 
-Creates a full Django module (model, admin, views, URLs, templates, tests), wires it
-into settings and urls, runs makemigrations/check/tests, and rolls back on failure.
-Field types: str, text, int, decimal, bool, date, email. First field must be str.
-Then run: cd workspace_crm && python manage.py migrate
-Generator code: workforce/generator.py (templates are the strings in that file).
+## Limits (honest list)
 
-`./wf make refresh Product name:str sku:str price:decimal stock:int` re-applies the
-look (layout, buttons, menu entry) to an existing generated module. The shared
-layout and dashboard live in the `core` app, created automatically; its source is
-workforce/ui.py. Change colours and layout there, then run refresh on each module.
+- It is supervised: you approve every change. That is a design choice, not a missing feature.
+- A 14B model is weak at writing tests. Some steps are done by fixed templates in Python because of that.
+- The CRM is basic. There is no POS or ERP yet, no user roles, and confirm / cancel are not wrapped in transactions.
+- It targets Django projects only.
+
+## Requirements
+
+Python 3.12+, [Ollama](https://ollama.com) with `ollama pull qwen3:14b`, and a virtual environment with `django`,
+`pytest` and `ollama`. The agent's settings are in `config.json` (model, attempts, minutes per card, backup folder).
+
+## Layout
+
+```
+workforce/     the engine (pipeline, rules, gates, mutation testing, wiring, ship, score)
+prompts/       the instructions given to the model
+tests/         tests for the engine itself
+workspace_crm/ the demo Django project built by the agent
+cards_*.json   example card files
+```
+
+## Credits and license
+
+Built by Mehedi Hassan with design and coding help from Claude (Anthropic). MIT license, see `LICENSE`.
