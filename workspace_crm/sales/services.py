@@ -123,3 +123,12 @@ def top_customers(limit=5):
 
     # Return the top 'limit' customers as a list of (customer, total) tuples
     return sorted_customers[:limit]
+
+
+def customer_outstanding(customer):
+    from sales.models import Sale
+    confirmed_sales = Sale.objects.filter(customer=customer, confirmed=True)
+    total_balance = Decimal('0.00')
+    for sale in confirmed_sales:
+        total_balance += sale.balance_due()
+    return total_balance
