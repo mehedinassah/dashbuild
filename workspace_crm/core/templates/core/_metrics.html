@@ -1,0 +1,17 @@
+{% if metrics %}
+<div class="cards">
+  {% for m in metrics %}{% if m.kind == "stat" %}
+  <div class="card"><span class="num">{{ m.display }}</span><span class="label">{{ m.label }}</span></div>
+  {% endif %}{% endfor %}
+</div>
+<div class="grid2">
+  {% for m in metrics %}{% if m.kind == "panel" %}
+  <section class="panel wide">
+    <h2>{{ m.label }}</h2>
+    {% if m.items %}<ul class="recent">{% for i in m.items %}<li>{{ i }}</li>{% endfor %}</ul>
+    {% elif m.bars %}{% for b in m.bars %}<div style="margin:.4rem 0"><div style="display:flex;justify-content:space-between"><span>{{ b.label }}</span><span>{{ b.value }}</span></div><div style="height:8px;border-radius:4px;background:var(--surface)"><div style="height:8px;border-radius:4px;width:{{ b.pct }}%;background:var(--accent)"></div></div></div>{% endfor %}
+    {% else %}<p class="muted">Nothing yet.</p>{% endif %}
+  </section>
+  {% endif %}{% endfor %}
+</div>
+{% endif %}

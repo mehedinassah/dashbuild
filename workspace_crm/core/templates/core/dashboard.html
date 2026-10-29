@@ -5,6 +5,7 @@
   <h1>Dashboard</h1>
   <span class="muted">{{ total }} records across {{ cards|length }} modules</span>
 </div>
+{% include "core/_metrics.html" %}
 <div class="cards">
   {% for card in cards %}
   <a class="card" href="{{ card.url }}">
